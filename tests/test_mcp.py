@@ -46,6 +46,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                             self.assertFalse(result.isError)
                             payload = json.loads(result.content[0].text)
                             self.assertEqual(payload["results"][0]["filename"], "来源.md")
+                            self.assertIn(f"/api/documents/{document['id']}/download", payload["results"][0]["download_url"])
                             content = await session.call_tool("get_document", {"document_id": document["id"]})
                             self.assertIn("这是原文证据。", content.content[0].text)
                             await client.patch(base + f'/api/documents/{document["id"]}', json={"enabled": False})

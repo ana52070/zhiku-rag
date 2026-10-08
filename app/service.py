@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,7 +108,12 @@ class KnowledgeService:
 
     @staticmethod
     def public_document(document):
-        return {key: (bool(value) if key == "enabled" else value) for key, value in document.items() if key not in {"text", "fingerprint", "suffix"}}
+        base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
+        doc_id = document.get("id", "")
+        res = {key: (bool(value) if key == "enabled" else value) for key, value in document.items() if key not in {"text", "fingerprint", "suffix"}}
+        if doc_id:
+            res["download_url"] = f"{base}/api/documents/{doc_id}/download"
+        return res
 
     def documents(self, tool=False):
         if tool:
@@ -211,6 +217,7 @@ class KnowledgeService:
             validate_vectors(vectors, 1)
             query_vector = vectors[0]
             query_norm = math.sqrt(sum(value * value for value in query_vector))
+            base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
             results = []
             for row in rows:
                 vector = json.loads(row["vector"])
@@ -218,7 +225,14 @@ class KnowledgeService:
                     raise BusinessError("模型向量维度已变化，请重建全部文件索引。", 409)
                 denominator = query_norm * math.sqrt(sum(value * value for value in vector))
                 score = sum(a * b for a, b in zip(query_vector, vector)) / denominator
-                results.append({"document_id": row["document_id"], "filename": row["filename"], "chunk_index": row["chunk_index"], "text": row["text"], "score": round(max(-1.0, min(1.0, score)), 6)})
+                results.append({
+                    "document_id": row["document_id"],
+                    "filename": row["filename"],
+                    "chunk_index": row["chunk_index"],
+                    "text": row["text"],
+                    "score": round(max(-1.0, min(1.0, score)), 6),
+                    "download_url": f"{base}/api/documents/{row['document_id']}/download"
+                })
             results.sort(key=lambda item: item["score"], reverse=True)
             return {"query": request.query, "results": results[:request.top_k]}
 
@@ -230,5 +244,12 @@ class KnowledgeService:
         if offset < 0 or not 1 <= limit <= 8000:
             raise BusinessError("读取范围无效。")
         text = document["text"]
-        return {"document_id": document_id, "filename": document["filename"], "text": text[offset:offset + limit],
-                "total_characters": len(text), "next_offset": offset + limit if offset + limit < len(text) else None}
+        base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
+        return {
+            "document_id": document_id,
+            "filename": document["filename"],
+            "text": text[offset:offset + limit],
+            "total_characters": len(text),
+            "next_offset": offset + limit if offset + limit < len(text) else None,
+            "download_url": f"{base}/api/documents/{document_id}/download"
+        }

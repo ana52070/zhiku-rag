@@ -83,7 +83,8 @@ function renderFiles() {
     const disabled = state.busy ? 'disabled' : '';
     const disabledIndex = state.busy || !state.status?.enabled || !state.status?.config.configured ? 'disabled' : '';
     const size = file.size < 1024 ? `${file.size} B` : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KiB` : `${(file.size / 1024 / 1024).toFixed(1)} MiB`;
-    return `<article class="file-row"><span class="file-type"><svg class="icon"><use href="#i-file"/></svg></span><div class="file-information"><h3 class="file-name">${escapeHtml(file.filename)}</h3><div class="file-details"><span>${size}</span><span>${file.chunk_count} 个片段</span><span>${new Date(file.created_at).toLocaleDateString('zh-CN')}</span><span class="badge ${escapeHtml(file.status)}">${labels[file.status] || escapeHtml(file.status)}</span>${file.enabled ? '' : '<span class="badge disabled">已禁用</span>'}</div>${file.error ? `<p class="file-error">${escapeHtml(file.error)}</p>` : ''}</div><div class="file-controls"><button class="text-button" data-file-action="preview" data-id="${file.id}" ${disabled} ${!file.enabled || !state.status?.enabled ? 'disabled' : ''}>原文</button><button class="text-button" data-file-action="reindex" data-id="${file.id}" ${disabledIndex}>重建</button><button class="text-button" data-file-action="toggle" data-id="${file.id}" ${disabled}>${file.enabled ? '禁用' : '启用'}</button><button class="text-button delete-button" data-file-action="delete" data-id="${file.id}" ${disabled}>删除</button></div></article>`;
+    const downloadUrl = file.download_url || `/api/documents/${file.id}/download`;
+    return `<article class="file-row"><span class="file-type"><svg class="icon"><use href="#i-file"/></svg></span><div class="file-information"><h3 class="file-name">${escapeHtml(file.filename)}</h3><div class="file-details"><span>${size}</span><span>${file.chunk_count} 个片段</span><span>${new Date(file.created_at).toLocaleDateString('zh-CN')}</span><span class="badge ${escapeHtml(file.status)}">${labels[file.status] || escapeHtml(file.status)}</span>${file.enabled ? '' : '<span class="badge disabled">已禁用</span>'}</div>${file.error ? `<p class="file-error">${escapeHtml(file.error)}</p>` : ''}</div><div class="file-controls"><a class="text-button" href="${downloadUrl}" download="${escapeHtml(file.filename)}" target="_blank" style="text-decoration:none;">下载</a><button class="text-button" data-file-action="preview" data-id="${file.id}" ${disabled} ${!file.enabled || !state.status?.enabled ? 'disabled' : ''}>原文</button><button class="text-button" data-file-action="reindex" data-id="${file.id}" ${disabledIndex}>重建</button><button class="text-button" data-file-action="toggle" data-id="${file.id}" ${disabled}>${file.enabled ? '禁用' : '启用'}</button><button class="text-button delete-button" data-file-action="delete" data-id="${file.id}" ${disabled}>删除</button></div></article>`;
   }).join('');
 }
 
@@ -185,7 +186,7 @@ $('#file-list').addEventListener('click', event => {
   } else if (button.dataset.fileAction === 'preview') loadPreview(file.id).catch(error => toast(error.message, true));
   else busyTask(async () => {
     if (button.dataset.fileAction === 'toggle') {
-      await api(`/api/documents/${file.id}`, {method: 'PATCH', body: {enabled: !file.enabled}});
+      await api(`/api/documents/${file.id}`, {method: 'PATCH', body: {enabled: !file.enabled}} );
       toast(file.enabled ? '文件已停止参与检索。' : '文件已启用。');
     } else {
       const result = await api(`/api/documents/${file.id}/reindex`, {method: 'POST'});
@@ -222,7 +223,10 @@ $('#search-form').addEventListener('submit', event => {
       const started = performance.now();
       const result = await api('/api/search', {method: 'POST', body: {query: $('#search-query').value, top_k: Number($('#top-k').value)}});
       $('#search-meta').textContent = `${result.results.length} 个片段，用时 ${((performance.now() - started) / 1000).toFixed(2)} 秒`;
-      $('#search-results').innerHTML = result.results.length ? result.results.map(hit => `<article class="result"><div class="result-header"><svg class="icon"><use href="#i-file"/></svg><h3>${escapeHtml(hit.filename)}</h3><span>片段 ${hit.chunk_index}</span><span class="similarity">相似度 ${hit.score.toFixed(3)}</span></div><p>${escapeHtml(hit.text)}</p><button class="text-button" data-preview-id="${hit.document_id}">查看原文件文字</button></article>`).join('') : '<div class="quiet-empty"><h3>暂无可检索的片段</h3><p>请先上传文件并完成索引，检查文件是否启用，以及模型变化后是否已重建。</p></div>';
+      $('#search-results').innerHTML = result.results.length ? result.results.map(hit => {
+        const downloadUrl = hit.download_url || `/api/documents/${hit.document_id}/download`;
+        return `<article class="result"><div class="result-header"><svg class="icon"><use href="#i-file"/></svg><h3>${escapeHtml(hit.filename)}</h3><span>片段 ${hit.chunk_index}</span><span class="similarity">相似度 ${hit.score.toFixed(3)}</span></div><p>${escapeHtml(hit.text)}</p><div style="margin-top:0.5rem;display:flex;gap:0.75rem;"><button class="text-button" data-preview-id="${hit.document_id}">查看原文</button><a class="text-button" href="${downloadUrl}" download="${escapeHtml(hit.filename)}" target="_blank" style="text-decoration:none;">下载源文件</a></div></article>`;
+      }).join('') : '<div class="quiet-empty"><h3>暂无匹配的片段</h3><p>请先上传文件并完成索引，检查文件是否启用，以及模型变化后是否已重建。</p></div>';
     } finally { $('#search-submit').innerHTML = '<svg class="icon"><use href="#i-search"/></svg>开始检索'; }
   });
 });

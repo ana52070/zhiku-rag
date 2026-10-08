@@ -51,6 +51,16 @@ class KnowledgeBaseTests(unittest.TestCase):
         self.assertEqual(hits[0]["filename"], "雷达说明.md")
         self.assertEqual(hits[0]["chunk_index"], 1)
         self.assertEqual(hits[0]["score"], 1.0)
+        self.assertIn(f"/api/documents/{document['id']}/download", hits[0]["download_url"])
+
+        # Test download endpoint
+        dl_resp = self.client.get(f"/api/documents/{document['id']}/download")
+        self.assertEqual(dl_resp.status_code, 200)
+        self.assertIn("雷达用于测距", dl_resp.text)
+
+        content_resp = self.client.get(f"/api/documents/{document['id']}/content").json()
+        self.assertIn(f"/api/documents/{document['id']}/download", content_resp["download_url"])
+
         from app.main import create_app
         with TestClient(create_app(self.folder.name, self.embedding), base_url="http://127.0.0.1") as restarted:
             self.assertEqual(len(restarted.get("/api/documents").json()["documents"]), 2)
