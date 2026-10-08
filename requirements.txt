@@ -1,0 +1,13 @@
+fastapi==0.116.1
+uvicorn==0.35.0
+mcp==1.13.1
+httpx[socks]==0.28.1
+python-multipart==0.0.20
+pypdf==6.14.2
+python-docx==1.2.0
+cryptography==45.0.3
+pydantic==2.11.7
+pydantic-settings==2.10.1
+markitdown==0.1.7
+openpyxl==3.1.5
+python-pptx==1.0.2

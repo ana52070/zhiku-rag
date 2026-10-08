@@ -1,0 +1,234 @@
+import asyncio
+import hashlib
+import json
+import math
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from urllib.parse import urlsplit
+
+from .documents import extract_text, split_text
+from .embedding import HTTPEmbedding, validate_vectors
+from .storage import Storage
+
+
+class BusinessError(Exception):
+    def __init__(self, message, status=400):
+        self.message = message
+        self.status = status
+
+
+class ModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_url: str = Field(min_length=1, max_length=2048)
+    model: str = Field(min_length=1, max_length=200)
+    api_key: str = Field(default="", max_length=4096)
+    clear_api_key: bool = False
+
+    @field_validator("base_url")
+    @classmethod
+    def valid_url(cls, value):
+        value = value.strip().rstrip("/")
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("接口地址必须是无用户名、密码和查询参数的 HTTP/HTTPS 基础地址。")
+        return value
+
+    @field_validator("model")
+    @classmethod
+    def nonempty(cls, value):
+        if not value.strip():
+            raise ValueError("模型名称不能为空。")
+        return value.strip()
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+    @field_validator("query")
+    @classmethod
+    def nonempty(cls, value):
+        if not value.strip():
+            raise ValueError("检索问题不能为空。")
+        return value.strip()
+
+
+class EnabledRequest(BaseModel):
+    enabled: bool
+
+
+class KnowledgeService:
+    def __init__(self, directory, embedder=None):
+        self.storage = Storage(directory)
+        self.embedder = embedder or HTTPEmbedding()
+        self.lock = asyncio.Lock()
+
+    def active(self):
+        if not self.storage.get("enabled", True):
+            raise BusinessError("业务已暂停，请在管理页面恢复服务。", 503)
+
+    def config(self):
+        config = self.storage.get("config", {"base_url": "https://api.openai.com/v1", "model": "", "encrypted_key": ""})
+        return {"base_url": config["base_url"], "model": config["model"], "api_key": self.storage.decrypt(config.get("encrypted_key", ""))}
+
+    def public_config(self):
+        config = self.config()
+        return {"base_url": config["base_url"], "model": config["model"], "has_api_key": bool(config["api_key"]), "configured": bool(config["model"])}
+
+    def resolve_config(self, requested):
+        old = self.config()
+        return {"base_url": requested.base_url, "model": requested.model,
+                "api_key": "" if requested.clear_api_key else (requested.api_key.strip() or old["api_key"])}
+
+    def fingerprint(self):
+        config = self.config()
+        return hashlib.sha256(json.dumps([config["base_url"], config["model"]]).encode()).hexdigest()
+
+    async def save_config(self, requested):
+        async with self.lock:
+            old_fingerprint = self.fingerprint()
+            resolved = self.resolve_config(requested)
+            self.storage.put("config", {"base_url": resolved["base_url"], "model": resolved["model"], "encrypted_key": self.storage.encrypt(resolved["api_key"])})
+            changed = old_fingerprint != self.fingerprint()
+            if changed:
+                with self.storage.connect() as connection:
+                    connection.execute("UPDATE documents SET status='stale', error='' WHERE status='ready'")
+            return {**self.public_config(), "index_invalidated": changed}
+
+    def document(self, document_id):
+        with self.storage.connect() as connection:
+            row = connection.execute("SELECT * FROM documents WHERE id=?", (document_id,)).fetchone()
+        if not row:
+            raise BusinessError("文件不存在。", 404)
+        return dict(row)
+
+    @staticmethod
+    def public_document(document):
+        return {key: (bool(value) if key == "enabled" else value) for key, value in document.items() if key not in {"text", "fingerprint", "suffix"}}
+
+    def documents(self, tool=False):
+        if tool:
+            self.active()
+        with self.storage.connect() as connection:
+            rows = connection.execute("SELECT * FROM documents ORDER BY created_at DESC").fetchall()
+        return [self.public_document(dict(row)) for row in rows if not tool or row["enabled"]]
+
+    def status(self):
+        documents = self.documents()
+        return {"enabled": self.storage.get("enabled", True), "document_count": len(documents),
+                "ready_count": sum(doc["status"] == "ready" and doc["enabled"] for doc in documents),
+                "stale_count": sum(doc["status"] == "stale" for doc in documents),
+                "chunk_count": sum(doc["chunk_count"] for doc in documents if doc["status"] == "ready" and doc["enabled"]),
+                "config": self.public_config()}
+
+    async def upload(self, filename, content):
+        async with self.lock:
+            self.active()
+            filename = Path(filename.replace("\\", "/")).name[:240]
+            suffix, text = await asyncio.to_thread(extract_text, filename, content)
+            document_id = uuid.uuid4().hex
+            path = self.storage.uploads / (document_id + suffix)
+            path.write_bytes(content)
+            try:
+                with self.storage.connect() as connection:
+                    connection.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status) VALUES(?,?,?,?,?,?,?)",
+                                       (document_id, filename, suffix, len(content), text, datetime.now(timezone.utc).isoformat(), "pending"))
+            except Exception:
+                path.unlink(missing_ok=True)
+                raise
+            if self.config()["model"]:
+                await self._index(document_id)
+            return self.public_document(self.document(document_id))
+
+    async def _index(self, document_id):
+        document = self.document(document_id)
+        pieces = split_text(document["text"])
+        with self.storage.connect() as connection:
+            connection.execute("UPDATE documents SET status='processing',error='' WHERE id=?", (document_id,))
+        try:
+            vectors = await self.embedder.embed(self.config(), pieces)
+            dimension = validate_vectors(vectors, len(pieces))
+        except ValueError as error:
+            with self.storage.connect() as connection:
+                connection.execute("UPDATE documents SET status='failed',error=? WHERE id=?", (str(error), document_id))
+            return
+        with self.storage.connect() as connection:
+            connection.execute("DELETE FROM chunks WHERE document_id=?", (document_id,))
+            connection.executemany("INSERT INTO chunks(document_id,chunk_index,text,vector) VALUES(?,?,?,?)",
+                                   [(document_id, index + 1, text, json.dumps(vector)) for index, (text, vector) in enumerate(zip(pieces, vectors))])
+            connection.execute("UPDATE documents SET status='ready',error='',fingerprint=?,chunk_count=?,dimension=? WHERE id=?",
+                               (self.fingerprint(), len(pieces), dimension, document_id))
+
+    async def reindex(self, document_id=None):
+        async with self.lock:
+            self.active()
+            if not self.config()["model"]:
+                raise BusinessError("请先配置 embedding 模型。")
+            ids = [document_id] if document_id else [doc["id"] for doc in self.documents()]
+            for selected_id in ids:
+                await self._index(selected_id)
+            if document_id:
+                return self.public_document(self.document(document_id))
+            documents = self.documents()
+            return {"documents": documents, "failed_count": sum(doc["status"] == "failed" for doc in documents)}
+
+    async def update_document(self, document_id, enabled):
+        async with self.lock:
+            self.document(document_id)
+            with self.storage.connect() as connection:
+                connection.execute("UPDATE documents SET enabled=? WHERE id=?", (int(enabled), document_id))
+            return self.public_document(self.document(document_id))
+
+    async def delete(self, document_id):
+        async with self.lock:
+            document = self.document(document_id)
+            (self.storage.uploads / (document_id + document["suffix"])).unlink(missing_ok=True)
+            with self.storage.connect() as connection:
+                connection.execute("DELETE FROM documents WHERE id=?", (document_id,))
+            return {"deleted": True}
+
+    async def set_enabled(self, enabled):
+        async with self.lock:
+            self.storage.put("enabled", enabled)
+            return self.status()
+
+    async def search(self, query, top_k=5):
+        request = SearchRequest(query=query, top_k=top_k)
+        async with self.lock:
+            self.active()
+            config = self.config()
+            if not config["model"]:
+                raise BusinessError("请先在模型配置页填写 embedding 接口和模型名称。")
+            with self.storage.connect() as connection:
+                rows = connection.execute("""SELECT c.*,d.filename FROM chunks c JOIN documents d ON d.id=c.document_id
+                    WHERE d.enabled=1 AND d.status='ready' AND d.fingerprint=?""", (self.fingerprint(),)).fetchall()
+            if not rows:
+                return {"query": request.query, "results": []}
+            vectors = await self.embedder.embed(config, [request.query])
+            validate_vectors(vectors, 1)
+            query_vector = vectors[0]
+            query_norm = math.sqrt(sum(value * value for value in query_vector))
+            results = []
+            for row in rows:
+                vector = json.loads(row["vector"])
+                if len(vector) != len(query_vector):
+                    raise BusinessError("模型向量维度已变化，请重建全部文件索引。", 409)
+                denominator = query_norm * math.sqrt(sum(value * value for value in vector))
+                score = sum(a * b for a, b in zip(query_vector, vector)) / denominator
+                results.append({"document_id": row["document_id"], "filename": row["filename"], "chunk_index": row["chunk_index"], "text": row["text"], "score": round(max(-1.0, min(1.0, score)), 6)})
+            results.sort(key=lambda item: item["score"], reverse=True)
+            return {"query": request.query, "results": results[:request.top_k]}
+
+    def content(self, document_id, offset=0, limit=8000):
+        self.active()
+        document = self.document(document_id)
+        if not document["enabled"]:
+            raise BusinessError("该文件已停止参与检索。", 404)
+        if offset < 0 or not 1 <= limit <= 8000:
+            raise BusinessError("读取范围无效。")
+        text = document["text"]
+        return {"document_id": document_id, "filename": document["filename"], "text": text[offset:offset + limit],
+                "total_characters": len(text), "next_offset": offset + limit if offset + limit < len(text) else None}

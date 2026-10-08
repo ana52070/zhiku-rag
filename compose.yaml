@@ -1,0 +1,19 @@
+name: zhiku-rag
+services:
+  rag:
+    build: .
+    ports:
+      - "${RAG_BIND_ADDRESS:-127.0.0.1}:${RAG_PORT:-8010}:8000"
+    environment:
+      RAG_DATA_DIR: /data
+      RAG_ADMIN_TOKEN: ${RAG_ADMIN_TOKEN:-}
+      RAG_MCP_TOKEN: ${RAG_MCP_TOKEN:-}
+      RAG_ALLOWED_HOSTS: ${RAG_ALLOWED_HOSTS:-localhost,127.0.0.1,::1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rag-data:/data
+    restart: unless-stopped
+    stop_grace_period: 60s
+volumes:
+  rag-data:
