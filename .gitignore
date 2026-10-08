@@ -7,4 +7,6 @@ venv/
 *.tar.gz
 data/
 scripts/
+!.skills/ui-ux-pro-max/data/
+!.skills/ui-ux-pro-max/scripts/
 .env

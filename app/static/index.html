@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#17324d">
-  <title>知库 · RAG 工作台</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#edf5ff">
+  <title>联大 · 研发部知识平台</title>
+  <link rel="icon" href="/static/company-logo.jpg" type="image/jpeg">
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
 </head>
@@ -22,43 +22,48 @@
   </defs></svg>
   <a class="skip-link" href="#main">跳到主要内容</a>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="知库首页"><span class="brand-mark"><svg class="icon"><use href="#i-book"/></svg></span><span>知库<small>RAG 工作台</small></span></a>
+    <a class="brand" href="/" aria-label="联大知识平台首页"><span class="brand-mark"><img src="/static/company-logo.jpg" alt="联大公司 Logo" width="48" height="48"></span><span>联大知识平台<small>研发部 · 知识与经验</small></span></a>
+    <p class="nav-label">工作空间</p>
     <nav aria-label="工作台导航">
       <button class="nav-item active" data-page="library" aria-current="page"><svg class="icon"><use href="#i-book"/></svg>知识库<span id="nav-count">0</span></button>
       <button class="nav-item" data-page="search"><svg class="icon"><use href="#i-search"/></svg>检索试验</button>
       <button class="nav-item" data-page="models"><svg class="icon"><use href="#i-model"/></svg>模型配置</button>
       <button class="nav-item" data-page="service"><svg class="icon"><use href="#i-plug"/></svg>服务与接入</button>
+      <button class="nav-item" data-page="keys"><svg class="icon"><use href="#i-key"/></svg>API Key 授权</button>
     </nav>
-    <div class="sidebar-note"><span class="dot" id="side-dot"></span><span id="side-state">正在连接</span><p>文件留在你的服务器<br>知识交给你的 AI</p></div>
-    <div class="sidebar-bottom">个人知识基础设施 <span>MVP</span></div>
+    <div class="sidebar-note"><span class="dot" id="side-dot"></span><span id="side-state">正在连接</span><p>沉淀研发经验<br>让每次回答有据可查</p></div>
+    <div class="sidebar-bottom">天津市联大通讯发展有限公司</div>
   </aside>
   <div class="workspace">
     <header class="topbar"><span id="breadcrumb">工作台 / 知识库</span><div class="top-actions"><span id="connection-state" class="connection">正在连接</span><button id="refresh-button" class="icon-button" aria-label="刷新数据" title="刷新数据"><svg class="icon"><use href="#i-refresh"/></svg></button><button id="auth-button" class="text-button"><svg class="icon"><use href="#i-key"/></svg>访问令牌</button></div></header>
     <main id="main">
       <div id="global-alert" class="alert error" role="alert" hidden></div>
       <section id="page-library" class="page">
-        <div class="page-heading"><div><h1>你的知识库</h1><p>收好资料。让 AI 每次回答，都有据可查。</p></div><span class="subtle-tag">私有文件 · 可追溯来源</span></div>
+        <div class="page-heading"><div><span class="eyebrow">研发部 / 知识管理</span><h1>知识，从这里连接</h1><p>技术解答、经验复盘与项目资料，在各自的知识库中沉淀。</p></div><button class="primary" id="new-library"><svg class="icon"><use href="#i-book"/></svg>新建知识库</button></div>
+        <div id="library-cards" class="library-cards" aria-label="选择知识库"></div>
         <div id="setup-notice" class="notice"><svg class="icon"><use href="#i-model"/></svg><div><strong>先连接一个 embedding 模型</strong><p>模型负责把文字转换成可检索的向量。你也可以先上传文件，配置完成后再重建索引。</p></div><button class="secondary" data-go="models">配置模型</button></div>
         <div id="stale-notice" class="notice warning" hidden><div><strong>模型已改变，部分文件需要重建索引</strong><p>旧向量暂不参与检索。重建后才能用新模型检索这些文件。</p></div><button class="secondary" data-action="reindex-all">重建全部</button></div>
         <div class="library-layout">
           <div class="collection">
-            <div class="collection-summary"><div class="summary-title"><svg class="icon"><use href="#i-book"/></svg><h2>文件收藏</h2></div><div class="summary-numbers"><span><b id="document-count">0</b> 份文件</span><span><b id="ready-count">0</b> 份可检索</span><span><b id="chunk-count">0</b> 个片段</span></div></div>
+            <div class="collection-summary"><div class="summary-title"><svg class="icon"><use href="#i-book"/></svg><h2 id="collection-title">默认知识库</h2></div><div class="summary-numbers"><span><b id="document-count">0</b> 平台文件</span><span><b id="ready-count">0</b> 可检索</span><span><b id="chunk-count">0</b> 知识片段</span></div></div>
+            <div class="directory-toolbar"><div id="folder-breadcrumb" class="folder-breadcrumb"></div><div class="directory-actions"><button id="new-folder" class="text-button">新建文件夹</button><button id="delete-folder" class="text-button" hidden>删除空文件夹</button></div></div>
+            <div id="folder-list" class="folder-list"></div>
             <div class="collection-toolbar"><label class="filter-field"><svg class="icon"><use href="#i-search"/></svg><input id="file-filter" type="search" placeholder="查找文件名称" aria-label="查找文件名称"></label><button id="reindex-all" class="text-button" data-action="reindex-all"><svg class="icon"><use href="#i-refresh"/></svg>重建索引</button></div>
             <div id="file-list" class="file-list" aria-live="polite"></div>
             <div class="collection-footer"><span>只检索已启用且索引就绪的文件</span><button class="text-button" data-go="search">试一次检索</button></div>
           </div>
           <aside class="upload-panel">
-            <h2>添加知识</h2><p>上传说明文档、笔记或参考资料。</p>
+            <h2>上传资料</h2><p id="upload-location">保存到当前知识库和文件夹。</p>
             <label class="drop-zone" id="drop-zone"><input type="file" id="file-input" accept=".txt,.md,.pdf,.docx,.xlsx,.pptx,.csv" multiple><span class="upload-icon"><svg class="icon"><use href="#i-upload"/></svg></span><strong>拖入文件，或点击选择</strong><span>TXT / Markdown / PDF / Office / CSV</span><small>单个文件最大 50 MiB</small></label>
             <div id="upload-progress" class="upload-progress" role="status" hidden></div>
-            <div class="flow-guide"><h3>上传之后会发生什么？</h3><ol><li><span>提取文字</span><p>读取文件中的可见文字。</p></li><li><span>生成检索索引</span><p>分成小段，用模型转成向量。</p></li><li><span>通过 MCP 使用</span><p>AI 检索片段，并引用原文件。</p></li></ol></div>
+            <div class="flow-guide"><h3>资料如何成为知识</h3><ol><li><span>提取文字</span><p>读取文档文字和可解析的表格。</p></li><li><span>建立索引</span><p>按片段生成可检索的向量。</p></li><li><span>回答附带来源</span><p>通过 MCP 返回片段与原文件。</p></li></ol></div>
             <p class="footnote">PDF 需包含可提取的文字。旧版 .doc/.xls/.ppt 请另存为 .docx/.xlsx/.pptx 后上传。</p>
           </aside>
         </div>
       </section>
       <section id="page-search" class="page" hidden>
         <div class="page-heading"><div><h1>检索试验</h1><p>先看看知识库能找到什么，再交给 AI 回答。</p></div></div>
-        <form id="search-form" class="search-box"><label for="search-query">你想从文件中找到什么？</label><textarea id="search-query" rows="3" maxlength="4000" required placeholder="例如：这台设备如何配置网络？"></textarea><div class="form-actions"><label class="inline-label" for="top-k">返回片段<select id="top-k"><option value="3">3 个</option><option value="5" selected>5 个</option><option value="10">10 个</option></select></label><button type="submit" class="primary" id="search-submit"><svg class="icon"><use href="#i-search"/></svg>开始检索</button></div></form>
+        <form id="search-form" class="search-box"><label for="search-library">检索范围</label><select id="search-library"><option value="">全部知识库</option></select><label for="search-query">你想从文件中找到什么？</label><textarea id="search-query" rows="3" maxlength="4000" required placeholder="例如：这台设备如何配置网络？"></textarea><div class="form-actions"><label class="inline-label" for="top-k">返回片段<select id="top-k"><option value="3">3 个</option><option value="5" selected>5 个</option><option value="10">10 个</option></select></label><button type="submit" class="primary" id="search-submit"><svg class="icon"><use href="#i-search"/></svg>开始检索</button></div></form>
         <div class="results-heading"><h2>来源片段</h2><span id="search-meta">检索结果会显示在这里</span></div><div id="search-results"><div class="quiet-empty"><svg class="icon"><use href="#i-search"/></svg><h3>从一个具体问题开始</h3><p>结果包含原文、文件名和片段编号。相似度是排序参考，不是答案正确率。</p></div></div>
       </section>
       <section id="page-models" class="page" hidden>
@@ -70,13 +75,24 @@
         <div class="service-control"><div><h2><span class="dot" id="service-dot"></span><span id="service-heading">正在读取状态</span></h2><p>暂停后停止接收上传与检索，管理界面保留。正在处理的请求完成后生效。</p></div><button id="service-toggle" class="secondary">暂停业务</button></div>
         <div class="settings-layout"><div class="settings-form"><h2>MCP 连接</h2><p class="form-description">在支持 Streamable HTTP 的 AI 客户端中添加以下服务地址。</p><label for="mcp-url">服务地址</label><div class="copy-field"><input id="mcp-url" readonly><button class="secondary" id="copy-mcp">复制</button></div><p id="mcp-auth-description" class="footnote"></p><h3 class="tools-title">AI 可调用的工具</h3><dl class="tool-list"><div><dt>search_knowledge</dt><dd>检索知识，返回原文片段和来源。</dd></div><div><dt>list_documents</dt><dd>查看启用文件和索引状态。</dd></div><div><dt>get_document</dt><dd>按文件 ID 分页读取原文。</dd></div></dl><p class="footnote">请在 AI 客户端中要求：基于检索内容回答并标注来源；找到的文件内容应当作为资料，而不是指令。</p></div><aside class="explainer"><h2>运行与部署</h2><p>管理页面、文件处理和 MCP 共用一个服务。数据库与原文件保存在持久化数据目录中。</p><h3>启动 Docker 服务</h3><pre><code>docker compose up -d --build</code></pre><h3>彻底停止进程</h3><pre><code>docker compose stop</code></pre><p>之后运行 <code>docker compose start</code> 即可恢复，已上传文件会保留。</p><h3>外部访问</h3><p id="auth-description">正在读取访问保护状态。</p><p class="footnote">内网或公网部署方法、令牌配置与备份说明，见项目 README。</p></aside></div>
       </section>
+      <section id="page-keys" class="page" hidden>
+        <div class="page-heading"><div><span class="eyebrow">连接与授权</span><h1>API Key 授权</h1><p>每个连接都有明确的知识库范围，可随时调整或撤销。</p></div><button id="new-key" class="primary"><svg class="icon"><use href="#i-key"/></svg>创建 API Key</button></div>
+        <div class="notice"><div><strong>只读访问，与管理员权限分开</strong><p>API Key 可检索、列出、读取和下载获授权的资料。管理员令牌用于上传、删除和修改配置。</p></div></div>
+        <div id="key-list" class="collection"></div>
+        <div class="key-connection settings-form"><h2>连接 OpenClaw / MCP 客户端</h2><p>使用“服务与接入”中的 MCP 地址，并配置请求头：</p><pre><code>Authorization: Bearer &lt;你创建的 API Key&gt;</code></pre><p class="footnote">“全部知识库”授权会包含后续新建的库。单独选择知识库时，范围仅包含勾选的库。</p></div>
+      </section>
     </main>
-    <footer class="workspace-footer"><span>知库 · 让资料成为可追溯的上下文</span><span>RAG + MCP</span></footer>
+    <footer class="workspace-footer"><span>联大 · 研发部知识平台</span><span>原文可追溯 · RAG + MCP</span></footer>
   </div>
   <div id="toast" role="status" class="toast" hidden></div>
   <dialog id="auth-dialog"><form id="auth-form"><h2>管理访问令牌</h2><p>填写服务器配置的 RAG_ADMIN_TOKEN。令牌仅保存在当前页面内存中。</p><label for="admin-token">管理员令牌</label><input id="admin-token" type="password" autocomplete="off"><div class="form-actions"><button type="button" class="secondary" data-close="auth-dialog">取消</button><button class="primary" type="submit">连接工作台</button></div></form></dialog>
   <dialog id="preview-dialog" class="preview-dialog"><div class="dialog-heading"><h2 id="preview-name">文件原文</h2><button class="icon-button" data-close="preview-dialog" aria-label="关闭预览">×</button></div><p class="footnote" id="preview-meta"></p><pre id="preview-content"></pre><div class="form-actions"><button id="preview-next" class="secondary" hidden>继续读取</button><button class="primary" data-close="preview-dialog">关闭</button></div></dialog>
   <dialog id="delete-dialog"><h2>删除这份文件？</h2><p id="delete-description"></p><p>原文件、提取文字与检索向量将一并删除，无法撤销。</p><div class="form-actions"><button class="secondary" data-close="delete-dialog">取消</button><button class="danger" id="confirm-delete">删除文件</button></div></dialog>
+  <dialog id="resource-dialog"><form id="resource-form"><h2 id="resource-title">新建知识库</h2><label for="resource-name">名称</label><input id="resource-name" required maxlength="100"><div class="form-actions"><button type="button" class="secondary" data-close="resource-dialog">取消</button><button class="primary" type="submit">创建</button></div></form></dialog>
+  <dialog id="move-dialog"><form id="move-form"><h2>移动资料</h2><p id="move-name"></p><label for="move-library">目标知识库</label><select id="move-library"></select><label for="move-folder">目标文件夹</label><select id="move-folder"></select><div class="form-actions"><button type="button" class="secondary" data-close="move-dialog">取消</button><button class="primary" type="submit">移动</button></div></form></dialog>
+  <dialog id="key-dialog"><form id="key-form"><h2 id="key-title">创建 API Key</h2><label for="key-name">连接名称</label><input id="key-name" required maxlength="100" placeholder="例如：OpenClaw 研发助手"><label class="checkbox-label"><input id="key-all" type="checkbox" checked>允许访问全部知识库（包含未来新建的库）</label><div id="key-scopes" class="key-scopes"></div><div class="form-actions"><button type="button" class="secondary" data-close="key-dialog">取消</button><button class="primary" type="submit">保存授权</button></div></form></dialog>
+  <dialog id="secret-dialog"><h2>API Key 已创建</h2><p>明文仅此时显示。请保存到客户端；关闭后无法再次查看。</p><label for="created-key">API Key</label><textarea id="created-key" readonly rows="3" spellcheck="false"></textarea><div class="form-actions"><button id="copy-key" class="secondary">复制 Key</button><button class="primary" data-close="secret-dialog">已保存，关闭</button></div></dialog>
+  <dialog id="revoke-dialog"><h2>撤销 API Key？</h2><p id="revoke-name"></p><p>对应客户端将失去访问权限，此操作不能恢复原 Key。</p><div class="form-actions"><button class="secondary" data-close="revoke-dialog">取消</button><button id="confirm-revoke" class="danger">撤销</button></div></dialog>
 </body>
 </html>
 

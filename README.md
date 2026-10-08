@@ -1,6 +1,27 @@
-# 知库：RAG + MCP 工作台
+# 联大 · 研发部知识平台
 
-这是一个带中文管理页面的个人知识库 MVP。你上传文件、连接 embedding 模型，外部 AI 就能通过 MCP 检索原文并获得文件来源。
+这是一个带中文管理页面的研发部知识平台。按知识库和子文件夹上传资料、连接 embedding 模型，外部 AI 通过获授权的 MCP API Key 检索原文并获得来源。
+
+## 知识库、文件夹和访问授权
+
+内置“技术组FAQ查询”“错题本记录”“AI查询机器人”三个业务库，也可新建其他库。升级前的文件自动进入“默认知识库”，维护人员在网页用“移动”归类；文件 ID、原文件和已有检索向量保留，不需要因为移动目录再次调用 embedding。
+
+每个库可创建多层子文件夹，上传保存到当前目录。目录是数据库维护的逻辑结构，磁盘原文件继续使用随机 ID；不要直接改服务器上传目录。仅允许删除空文件夹，跨知识库移动文件可在“移动资料”中选择目标。
+
+网页“API Key 授权”用于创建多个 MCP 只读凭证：
+
+- 先设置 `RAG_ADMIN_TOKEN`；管理员凭证用于文件维护、模型配置与 Key 管理。
+- 每个 Key 选择一个或多个知识库，也可选择“全部知识库（包含未来新建）”。
+- 明文 Key 只在创建时显示，数据库仅存摘要。可修改授权范围或撤销，下一次请求生效。
+- Key 只能检索、列出、读取和下载获授权的文件，不能上传、删除资料或修改配置。
+- 客户端使用 `Authorization: Bearer <API Key>`，MCP 地址仍为 `/mcp/`。
+- `search_knowledge`、`list_documents` 可传 `library_id`；不传则查询当前 Key 的全部获授权库。`list_documents` 同时返回这些库的名称与 ID。
+- Key 请求得到的源文件下载链接有效 10 分钟，不包含明文 Key。撤销 Key 或移出授权范围会阻止后续下载；过期后重新检索取得新链接。管理员网页下载自动携带页面内的管理员凭证。
+- 设置 `RAG_PUBLIC_URL` 为用户能访问的完整服务地址，否则下载链接默认指向本机。
+
+`RAG_MCP_TOKEN` 保留旧客户端兼容，但该环境令牌始终是全库权限。客户端迁移到网页创建的 Key 后，移除旧令牌，避免留下无法按库管理的访问途径。API Key 不是登录账号；第一版同一个 OpenClaw Agent 使用全库 Key，其使用者共享全部资料访问权限。
+
+UI 使用公司原始 Logo、浅蓝白色样式及你指定的 [UI UX Pro Max Skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)。原始 Skill 与许可证保存在 `.skills/ui-ux-pro-max/`；设计查询中未匹配本平台的营销页和深色配色建议未采用。
 
 ## 先运行起来
 
@@ -97,7 +118,7 @@ python scripts/check_mcp.py
 python scripts/check_mcp.py --query "你的具体问题"
 ```
 
-该脚本默认直连服务，不继承系统代理。它需要安装项目 Python 依赖。MCP 使用的是[官方 Python SDK 1.13.1](https://github.com/modelcontextprotocol/python-sdk/tree/v1.13.1)；前端设计使用你指定的 [Anthropic frontend-design Skill](https://github.com/anthropics/skills/tree/main/skills/frontend-design)，原文和许可证保留在 `.skills/frontend-design/`。
+该脚本默认直连服务，不继承系统代理。它需要安装项目 Python 依赖。MCP 使用的是[官方 Python SDK 1.13.1](https://github.com/modelcontextprotocol/python-sdk/tree/v1.13.1)；原版界面使用的 Anthropic frontend-design Skill 保留在 `.skills/frontend-design/` 供追溯。
 
 ## 启动、停止和日志
 
@@ -144,6 +165,7 @@ Copy-Item .env.example .env
 | `RAG_ALLOWED_HOSTS` | 逗号分隔的主机名/IP，不包含协议与端口；添加访问地址时保留 `localhost,127.0.0.1,::1` |
 | `RAG_ADMIN_TOKEN` | 保护管理 API，网页会提示输入管理员令牌 |
 | `RAG_MCP_TOKEN` | 独立保护 MCP，外部客户端需要携带 Bearer 令牌 |
+| `RAG_PUBLIC_URL` | 用户可达的服务完整地址，用于引用源文件下载链接 |
 
 两个令牌应使用不同的随机值。可在本机终端生成两次，并各自填写到 `.env`：
 
@@ -205,6 +227,7 @@ python -m unittest discover -s tests -v
 python -m pip install -r requirements-dev.txt -c requirements.lock
 python -m playwright install chromium
 python -m tests.browser_smoke
+python -m tests.browser_catalog
 
 # 实际 Docker 新部署验收：仅适用于尚未配置模型的服务
 # 会创建自己的临时文件、重建本项目容器，然后清理临时文件

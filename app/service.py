@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import json
 import math
-import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +47,7 @@ class ModelConfig(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     top_k: int = Field(default=5, ge=1, le=20)
+    library_id: str | None = None
 
     @field_validator("query")
     @classmethod
@@ -64,6 +64,10 @@ class EnabledRequest(BaseModel):
 class KnowledgeService:
     def __init__(self, directory, embedder=None):
         self.storage = Storage(directory)
+        from .catalog import Catalog
+        self.catalog = Catalog(self.storage)
+        from .access_keys import AccessKeys
+        self.keys = AccessKeys(self.storage, self.catalog)
         self.embedder = embedder or HTTPEmbedding()
         self.lock = asyncio.Lock()
 
@@ -102,17 +106,17 @@ class KnowledgeService:
     def document(self, document_id):
         with self.storage.connect() as connection:
             row = connection.execute("SELECT * FROM documents WHERE id=?", (document_id,)).fetchone()
-        if not row:
+        from .access_keys import permitted
+        if not row or not permitted(row['library_id']):
             raise BusinessError("文件不存在。", 404)
         return dict(row)
 
-    @staticmethod
-    def public_document(document):
-        base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
+    def public_document(self, document):
         doc_id = document.get("id", "")
         res = {key: (bool(value) if key == "enabled" else value) for key, value in document.items() if key not in {"text", "fingerprint", "suffix"}}
         if doc_id:
-            res["download_url"] = f"{base}/api/documents/{doc_id}/download"
+            from .access_keys import source_url
+            res["download_url"] = source_url(doc_id, self.storage)
         return res
 
     def documents(self, tool=False):
@@ -120,7 +124,8 @@ class KnowledgeService:
             self.active()
         with self.storage.connect() as connection:
             rows = connection.execute("SELECT * FROM documents ORDER BY created_at DESC").fetchall()
-        return [self.public_document(dict(row)) for row in rows if not tool or row["enabled"]]
+        from .access_keys import permitted
+        return [self.public_document(dict(row)) for row in rows if permitted(row['library_id']) and (not tool or row["enabled"])]
 
     def status(self):
         documents = self.documents()
@@ -130,9 +135,10 @@ class KnowledgeService:
                 "chunk_count": sum(doc["chunk_count"] for doc in documents if doc["status"] == "ready" and doc["enabled"]),
                 "config": self.public_config()}
 
-    async def upload(self, filename, content):
+    async def upload(self, filename, content, library_id='default', folder_id=None):
         async with self.lock:
             self.active()
+            self.catalog.validate_location(library_id, folder_id)
             filename = Path(filename.replace("\\", "/")).name[:240]
             suffix, text = await asyncio.to_thread(extract_text, filename, content)
             document_id = uuid.uuid4().hex
@@ -140,8 +146,8 @@ class KnowledgeService:
             path.write_bytes(content)
             try:
                 with self.storage.connect() as connection:
-                    connection.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status) VALUES(?,?,?,?,?,?,?)",
-                                       (document_id, filename, suffix, len(content), text, datetime.now(timezone.utc).isoformat(), "pending"))
+                    connection.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status,library_id,folder_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                                       (document_id, filename, suffix, len(content), text, datetime.now(timezone.utc).isoformat(), "pending", library_id, folder_id))
             except Exception:
                 path.unlink(missing_ok=True)
                 raise
@@ -201,24 +207,38 @@ class KnowledgeService:
             self.storage.put("enabled", enabled)
             return self.status()
 
-    async def search(self, query, top_k=5):
-        request = SearchRequest(query=query, top_k=top_k)
+    async def move_document(self, document_id, location):
+        async with self.lock:
+            self.document(document_id)
+            self.catalog.validate_location(location.library_id, location.folder_id)
+            with self.storage.connect() as db:
+                db.execute('UPDATE documents SET library_id=?,folder_id=? WHERE id=?', (location.library_id, location.folder_id, document_id))
+            return self.public_document(self.document(document_id))
+
+    async def search(self, query, top_k=5, library_id=None):
+        request = SearchRequest(query=query, top_k=top_k, library_id=library_id)
+        from .access_keys import permitted
+        if library_id and not permitted(library_id):
+            raise BusinessError('该 API Key 未获授权访问此知识库。', 403)
+        if library_id:
+            self.catalog.validate_location(library_id)
         async with self.lock:
             self.active()
             config = self.config()
             if not config["model"]:
                 raise BusinessError("请先在模型配置页填写 embedding 接口和模型名称。")
             with self.storage.connect() as connection:
-                rows = connection.execute("""SELECT c.*,d.filename FROM chunks c JOIN documents d ON d.id=c.document_id
-                    WHERE d.enabled=1 AND d.status='ready' AND d.fingerprint=?""", (self.fingerprint(),)).fetchall()
+                rows = connection.execute("""SELECT c.*,d.filename,d.library_id,d.folder_id FROM chunks c JOIN documents d ON d.id=c.document_id
+                    WHERE d.enabled=1 AND d.status='ready' AND d.fingerprint=? AND (? IS NULL OR d.library_id=?)""", (self.fingerprint(), library_id, library_id)).fetchall()
+            rows = [row for row in rows if permitted(row['library_id'])]
             if not rows:
                 return {"query": request.query, "results": []}
             vectors = await self.embedder.embed(config, [request.query])
             validate_vectors(vectors, 1)
             query_vector = vectors[0]
             query_norm = math.sqrt(sum(value * value for value in query_vector))
-            base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
             results = []
+            from .access_keys import source_url
             for row in rows:
                 vector = json.loads(row["vector"])
                 if len(vector) != len(query_vector):
@@ -228,10 +248,12 @@ class KnowledgeService:
                 results.append({
                     "document_id": row["document_id"],
                     "filename": row["filename"],
+                    "library_id": row["library_id"],
+                    "folder_id": row["folder_id"],
                     "chunk_index": row["chunk_index"],
                     "text": row["text"],
                     "score": round(max(-1.0, min(1.0, score)), 6),
-                    "download_url": f"{base}/api/documents/{row['document_id']}/download"
+                    "download_url": source_url(row['document_id'], self.storage)
                 })
             results.sort(key=lambda item: item["score"], reverse=True)
             return {"query": request.query, "results": results[:request.top_k]}
@@ -244,12 +266,12 @@ class KnowledgeService:
         if offset < 0 or not 1 <= limit <= 8000:
             raise BusinessError("读取范围无效。")
         text = document["text"]
-        base = os.environ.get("RAG_PUBLIC_URL", "http://123.57.94.33:8010").rstrip("/")
+        from .access_keys import source_url
         return {
             "document_id": document_id,
             "filename": document["filename"],
             "text": text[offset:offset + limit],
             "total_characters": len(text),
             "next_offset": offset + limit if offset + limit < len(text) else None,
-            "download_url": f"{base}/api/documents/{document_id}/download"
+            "download_url": source_url(document_id, self.storage)
         }
