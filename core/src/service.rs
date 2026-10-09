@@ -189,7 +189,8 @@ impl KnowledgeService {
     }
 
     pub fn status(&self) -> Value {
-        let cfg = self.config();
+        let _cfg = self.config();
+        let pub_cfg = self.public_config();
         let fp = self.fingerprint();
         let enabled = self
             .storage
@@ -197,12 +198,12 @@ impl KnowledgeService {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let (total_docs, ready_docs, failed_docs) = self
+        let (total_docs, ready_docs, failed_docs, stale_docs, chunk_count) = self
             .storage
             .with_conn(|conn| {
                 let total: i64 = conn.query_row("SELECT COUNT(1) FROM documents", [], |r| r.get(0))?;
                 let ready: i64 = conn.query_row(
-                    "SELECT COUNT(1) FROM documents WHERE status = 'ready' AND fingerprint = ?",
+                    "SELECT COUNT(1) FROM documents WHERE status = 'ready' AND fingerprint = ? AND enabled = 1",
                     params![fp],
                     |r| r.get(0),
                 )?;
@@ -211,18 +212,39 @@ impl KnowledgeService {
                     [],
                     |r| r.get(0),
                 )?;
-                Ok((total, ready, failed))
+                let stale: i64 = conn.query_row(
+                    "SELECT COUNT(1) FROM documents WHERE status = 'ready' AND fingerprint != ?",
+                    params![fp],
+                    |r| r.get(0),
+                )?;
+                let chunks: i64 = conn.query_row(
+                    "SELECT COALESCE(SUM(chunk_count), 0) FROM documents WHERE status = 'ready' AND enabled = 1",
+                    [],
+                    |r| r.get(0),
+                )?;
+                Ok((total, ready, failed, stale, chunks))
             })
-            .unwrap_or((0, 0, 0));
+            .unwrap_or((0, 0, 0, 0, 0));
 
         json!({
             "enabled": enabled,
-            "configured": !cfg.model.is_empty(),
-            "model": cfg.model,
-            "base_url": cfg.base_url,
+            "document_count": total_docs,
+            "ready_count": ready_docs,
+            "failed_count": failed_docs,
+            "stale_count": stale_docs,
+            "chunk_count": chunk_count,
             "total_documents": total_docs,
             "ready_documents": ready_docs,
             "failed_documents": failed_docs,
+            "configured": pub_cfg.configured,
+            "model": pub_cfg.model,
+            "base_url": pub_cfg.base_url,
+            "config": {
+                "configured": pub_cfg.configured,
+                "model": pub_cfg.model,
+                "base_url": pub_cfg.base_url,
+                "has_api_key": pub_cfg.has_api_key
+            }
         })
     }
 

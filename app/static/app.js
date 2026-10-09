@@ -97,11 +97,11 @@ async function refresh(fillConfig = false) {
   try {
     const [status, documents, libraries, folders, keys] = await Promise.all([api('/api/status'), api('/api/documents'), api('/api/libraries'), api('/api/folders'), api('/api/keys')]);
     state.status = status;
-    state.documents = documents.documents;
+    state.documents = Array.isArray(documents) ? documents : (documents?.documents || []);
     for (const id of selectedFiles) if (!state.documents.some(doc => doc.id === id)) selectedFiles.delete(id);
-    catalogState.libraries = libraries.libraries;
-    catalogState.folders = folders.folders;
-    catalogState.keys = keys.keys;
+    catalogState.libraries = Array.isArray(libraries) ? libraries : (libraries?.libraries || []);
+    catalogState.folders = Array.isArray(folders) ? folders : (folders?.folders || []);
+    catalogState.keys = Array.isArray(keys) ? keys : (keys?.keys || []);
     $('#global-alert').hidden = true;
     renderStatus(); renderCatalog(); renderFiles(); renderKeys();
     if (fillConfig) {
@@ -288,7 +288,7 @@ const libraryDescriptions = {default: '待整理的资料，从这里开始归�
 function folderPath(folderId) {
   const names = []; const seen = new Set();
   while (folderId && !seen.has(folderId)) {
-    seen.add(folderId); const folder = catalogState.folders.find(f => f.id === folderId); if (!folder) break;
+    seen.add(folderId); const folder = (catalogState.folders || []).find(f => f.id === folderId); if (!folder) break;
     names.unshift(folder.name); folderId = folder.parent_id;
   }
   return names.join(' / ');
@@ -299,23 +299,23 @@ function renderCatalog() {
   for (const id of ['rename-library', 'delete-library', 'new-folder']) $('#' + id).disabled = !catalogState.library || state.busy;
   if (state.status) $('#file-input').disabled = !state.status.enabled || state.busy || !catalogState.library;
   $('#library-cards').innerHTML = catalogState.libraries.map(lib => `<button class="library-card ${lib.id === catalogState.library ? 'selected' : ''}" data-library="${escapeHtml(lib.id)}" aria-pressed="${lib.id === catalogState.library}"><span class="card-icon"><svg class="icon"><use href="#i-book"/></svg></span><strong>${escapeHtml(lib.name)}</strong><span>${escapeHtml(libraryDescriptions[lib.id] || '独立管理的知识资料')}</span><small>${lib.document_count} 份文件<span>${lib.id === catalogState.library ? '当前知识库' : '打开知识库 →'}</span></small></button>`).join('');
-  const library = catalogState.libraries.find(lib => lib.id === catalogState.library);
+  const library = (catalogState.libraries || []).find(lib => lib.id === catalogState.library);
   renderLibrarySummary();
   $('#collection-title').textContent = library?.name || '知识库';
   const path = folderPath(catalogState.folder);
     $('#upload-location').textContent = library ? `上传到：${library.name}${path ? ' / ' + path : ' / 根目录'}` : '请先新建知识库，再上传资料。';
   const chain = []; let folderId = catalogState.folder;
-  while (folderId) { const f = catalogState.folders.find(item => item.id === folderId); if (!f) break; chain.unshift(f); folderId = f.parent_id; }
+  while (folderId) { const f = (catalogState.folders || []).find(item => item.id === folderId); if (!f) break; chain.unshift(f); folderId = f.parent_id; }
   $('#folder-breadcrumb').innerHTML = `<button class="text-button" data-folder="">根目录</button>` + chain.map(f => `<span>/</span><button class="text-button" data-folder="${f.id}">${escapeHtml(f.name)}</button>`).join('');
   $('#delete-folder').hidden = !catalogState.folder;
-  $('#folder-list').innerHTML = catalogState.folders.filter(f => f.library_id === catalogState.library && f.parent_id === catalogState.folder).map(f => `<button class="folder-chip" data-folder="${f.id}"><svg class="icon"><use href="#i-book"/></svg>${escapeHtml(f.name)}<span>→</span></button>`).join('');
+  $('#folder-list').innerHTML = (catalogState.folders || []).filter(f => f.library_id === catalogState.library && f.parent_id === catalogState.folder).map(f => `<button class="folder-chip" data-folder="${f.id}"><svg class="icon"><use href="#i-book"/></svg>${escapeHtml(f.name)}<span>→</span></button>`).join('');
   const searchSelected = $('#search-library').value;
   $('#search-library').innerHTML = '<option value="">全部知识库</option>' + libraryOptions();
   if (catalogState.libraries.some(lib => lib.id === searchSelected)) $('#search-library').value = searchSelected;
 }
 function renderKeys() {
   $('#key-list').innerHTML = catalogState.keys.length ? catalogState.keys.map(key => {
-    const scope = key.all_libraries ? '全部知识库（包含未来新建）' : key.library_ids.map(id => catalogState.libraries.find(lib => lib.id === id)?.name || '已删除的知识库').join('、');
+    const scope = key.all_libraries ? '全部知识库（包含未来新建）' : key.library_ids.map(id => (catalogState.libraries || []).find(lib => lib.id === id)?.name || '已删除的知识库').join('、');
     return `<article class="key-row"><span class="card-icon"><svg class="icon"><use href="#i-key"/></svg></span><div class="key-information"><h3>${escapeHtml(key.name)} <span class="badge ${key.revoked ? 'disabled' : ''}">${key.revoked ? '已撤销' : '有效'}</span></h3><p>${escapeHtml(scope)}</p><small>${escapeHtml(key.prefix)}… · ${new Date(key.created_at).toLocaleDateString('zh-CN')}</small></div><div class="file-controls">${key.revoked ? '' : `<button class="text-button" data-key-edit="${key.id}">编辑</button><button class="text-button" data-key-revoke="${key.id}">撤销</button>`}<button class="text-button delete-button" data-key-delete="${key.id}">删除</button></div></article>`;
   }).join('') : '<div class="quiet-empty"><svg class="icon"><use href="#i-key"/></svg><h3>给第一个客户端创建访问凭证</h3><p>选择它能使用的知识库，不需要共享管理员令牌。</p></div>';
 }
@@ -336,10 +336,10 @@ $('#resource-form').addEventListener('submit', event => {
   busyTask(async () => { const result = await api(editing ? `/api/libraries/${catalogState.library}` : isLibrary ? '/api/libraries' : '/api/folders', {method: editing ? 'PATCH' : 'POST', body}); if (isLibrary) { catalogState.library = result.id; catalogState.folder = null; } $('#resource-dialog').close(); toast(editing ? '知识库已更新。' : '已创建。'); });
 });
 $('#delete-folder').addEventListener('click', () => busyTask(async () => {
-  const folder = catalogState.folders.find(f => f.id === catalogState.folder); if (!folder) return;
+  const folder = (catalogState.folders || []).find(f => f.id === catalogState.folder); if (!folder) return;
   await api(`/api/folders/${folder.id}`, {method: 'DELETE'}); catalogState.folder = folder.parent_id; toast('空文件夹已删除。');
 }));
-function renderMoveFolders() { $('#move-folder').innerHTML = '<option value="">根目录</option>' + catalogState.folders.filter(f => f.library_id === $('#move-library').value).map(f => `<option value="${f.id}">${escapeHtml(folderPath(f.id))}</option>`).join(''); }
+function renderMoveFolders() { $('#move-folder').innerHTML = '<option value="">根目录</option>' + (catalogState.folders || []).filter(f => f.library_id === $('#move-library').value).map(f => `<option value="${f.id}">${escapeHtml(folderPath(f.id))}</option>`).join(''); }
 function openMove(file) { catalogState.moving = [file.id]; $('#move-name').textContent = file.filename; $('#move-library').innerHTML = libraryOptions(); $('#move-library').value = file.library_id; renderMoveFolders(); $('#move-folder').value = file.folder_id || ''; $('#move-dialog').showModal(); }
 $('#move-library').addEventListener('change', renderMoveFolders);
 $('#move-form').addEventListener('submit', event => { event.preventDefault(); busyTask(async () => { await api('/api/documents/batch/move', {method: 'POST', body: {document_ids: catalogState.moving, library_id: $('#move-library').value, folder_id: $('#move-folder').value || null}}); selectedFiles.clear(); $('#move-dialog').close(); toast('资料已移动，原索引和引用链接保持有效。'); }); });
@@ -415,11 +415,11 @@ $('#batch-delete').addEventListener('click', () => {
 });
 $('#rename-library').addEventListener('click', () => {
   openResource('rename-library'); $('#resource-title').textContent = '修改知识库';
-  $('#resource-name').value = catalogState.libraries.find(lib => lib.id === catalogState.library)?.name || '';
+  $('#resource-name').value = (catalogState.libraries || []).find(lib => lib.id === catalogState.library)?.name || '';
   $('#resource-form button[type=submit]').textContent = '保存';
 });
 $('#delete-library').addEventListener('click', () => {
-  const library = catalogState.libraries.find(lib => lib.id === catalogState.library); if (!library) return;
+  const library = (catalogState.libraries || []).find(lib => lib.id === catalogState.library); if (!library) return;
   confirmManagement('删除整个知识库？', `“${library.name}”内的 ${library.document_count} 份文件、所有文件夹与索引将一并删除。`, async () => {
     await api(`/api/libraries/${library.id}`, {method: 'DELETE'}); catalogState.library = null; catalogState.folder = null; selectedFiles.clear(); toast('知识库及全部资料已删除。');
   });

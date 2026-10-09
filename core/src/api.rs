@@ -101,7 +101,29 @@ async fn health(State(svc): State<AppState>) -> Response {
 }
 
 async fn get_status(State(svc): State<AppState>) -> Response {
-    Json(svc.status()).into_response()
+    let mut status = svc.status();
+    let ocr = svc.worker.ocr_status().await.unwrap_or(json!({
+        "available": false,
+        "engine": "Tesseract",
+        "device": "CPU",
+        "languages": "chi_sim+eng"
+    }));
+
+    let admin_auth = std::env::var("RAG_ADMIN_TOKEN")
+        .map(|t| !t.trim().is_empty())
+        .unwrap_or(false);
+    let mcp_auth = std::env::var("RAG_MCP_TOKEN")
+        .map(|t| !t.trim().is_empty())
+        .unwrap_or(false)
+        || svc.keys.list().map(|k| !k.is_empty()).unwrap_or(false);
+
+    if let Some(obj) = status.as_object_mut() {
+        obj.insert("ocr".to_string(), ocr);
+        obj.insert("admin_auth".to_string(), json!(admin_auth));
+        obj.insert("mcp_auth".to_string(), json!(mcp_auth));
+    }
+
+    Json(status).into_response()
 }
 
 async fn enable_service(State(svc): State<AppState>) -> Response {
@@ -138,7 +160,7 @@ async fn get_ocr_status(State(svc): State<AppState>) -> Response {
 
 async fn list_documents(State(svc): State<AppState>) -> Response {
     match svc.list_documents(false, None) {
-        Ok(v) => Json(v).into_response(),
+        Ok(v) => Json(json!({ "documents": v })).into_response(),
         Err((c, m)) => err_response(c, m),
     }
 }
@@ -382,7 +404,7 @@ async fn batch_delete_documents(
 
 async fn list_libraries(State(svc): State<AppState>) -> Response {
     match svc.catalog.libraries() {
-        Ok(libs) => Json(libs).into_response(),
+        Ok(libs) => Json(json!({ "libraries": libs })).into_response(),
         Err(e) => err_response(500, e),
     }
 }
@@ -430,7 +452,7 @@ async fn list_folders(
     Query(query): Query<FolderQuery>,
 ) -> Response {
     match svc.catalog.folders(query.library_id.as_deref()) {
-        Ok(folders) => Json(folders).into_response(),
+        Ok(folders) => Json(json!({ "folders": folders })).into_response(),
         Err(e) => err_response(500, e),
     }
 }
@@ -465,7 +487,7 @@ async fn delete_folder(State(svc): State<AppState>, Path(id): Path<String>) -> R
 
 async fn list_keys(State(svc): State<AppState>) -> Response {
     match svc.keys.list() {
-        Ok(keys) => Json(keys).into_response(),
+        Ok(keys) => Json(json!({ "keys": keys })).into_response(),
         Err(e) => err_response(500, e),
     }
 }
