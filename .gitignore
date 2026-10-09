@@ -10,3 +10,8 @@ scripts/
 !.skills/ui-ux-pro-max/data/
 !.skills/ui-ux-pro-max/scripts/
 .env
+
+# Rust build target & test logs
+core/target/
+*.log
+test_hybrid_data/
