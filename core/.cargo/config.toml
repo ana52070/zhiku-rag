@@ -1,8 +1,5 @@
 [source.crates-io]
-replace-with = "tuna"
+replace-with = "ustc"
 
-[source.tuna]
-registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
-
-[net]
-git-fetch-with-cli = true
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
