@@ -6,13 +6,13 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .documents import MAX_UPLOAD
-from .service import BusinessError, EnabledRequest, KnowledgeService, ModelConfig, SearchRequest
+from .service import BusinessError, EnabledRequest, KnowledgeService, ModelConfig, SearchRequest, BatchDocuments, BatchMove
 from .catalog import NamedResource, FolderRequest, Location
 from .access_keys import KeyRequest, library_access, download_identity, permitted
 
@@ -49,7 +49,7 @@ class AccessControl:
                     pass
                 elif secret:
                     allowed, identity = self.service.keys.resolve(secret)
-                elif self.mcp_token or self.service.keys.configured():
+                elif self.admin_token or self.mcp_token or self.service.keys.configured():
                     raise BusinessError('请提供 MCP API Key。', 401)
             elif path.startswith('/api/'):
                 if self.admin_token and hmac.compare_digest(secret.encode(), self.admin_token.encode()):
@@ -68,7 +68,7 @@ class AccessControl:
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
                     (b"referrer-policy", b"same-origin"),
-                    (b"content-security-policy", b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+                    (b"content-security-policy", b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
                     (b"cache-control", b"no-store"),
                 ])
             await send(message)
@@ -175,6 +175,11 @@ def create_app(data_dir=None, embedder=None):
         async with service.lock:
             return service.catalog.delete_library(library_id)
 
+    @application.patch('/api/libraries/{library_id}')
+    async def update_library(library_id: str, request: NamedResource):
+        async with service.lock:
+            return service.catalog.update_library(library_id, request.name)
+
     @application.get('/api/folders')
     async def folders(library_id: str | None = None):
         if library_id and not permitted(library_id):
@@ -202,6 +207,31 @@ def create_app(data_dir=None, embedder=None):
         async with service.lock:
             return service.keys.revoke(key_id)
 
+    @application.delete('/api/keys/{key_id}/permanent')
+    async def delete_key(key_id: str):
+        async with service.lock:
+            return service.keys.delete(key_id)
+
+    @application.post('/api/documents/batch/move')
+    async def batch_move(request: BatchMove):
+        return await service.batch_move(request)
+
+    @application.post('/api/documents/batch/delete')
+    async def batch_delete(request: BatchDocuments):
+        return await service.batch_delete(request)
+
+    @application.get('/api/documents/{document_id}/preview')
+    async def preview(document_id: str):
+        document = service.document(document_id)
+        path = service.storage.uploads / (document_id + document['suffix'])
+        if not path.exists():
+            raise BusinessError('源文件不存在。', 404)
+        if document['suffix'] == '.pdf':
+            return FileResponse(path, media_type='application/pdf')
+        from .preview import render_preview
+        import asyncio
+        return HTMLResponse(await asyncio.to_thread(render_preview, document, path))
+
     @application.post('/api/folders', status_code=201)
     async def create_folder(request: FolderRequest):
         async with service.lock:
@@ -217,7 +247,7 @@ def create_app(data_dir=None, embedder=None):
         return await service.move_document(document_id, request)
 
     @application.post("/api/documents", status_code=201)
-    async def upload(file: UploadFile = File(...), library_id: str = Query('default'), folder_id: str | None = Query(None)):
+    async def upload(file: UploadFile = File(...), library_id: str | None = Query(None), folder_id: str | None = Query(None)):
         service.active()
         content = await file.read(MAX_UPLOAD + 1)
         return await service.upload(file.filename or "未命名.txt", content, library_id, folder_id)
@@ -243,6 +273,10 @@ def create_app(data_dir=None, embedder=None):
     @application.get("/api/documents/{document_id}/content")
     async def content(document_id: str, offset: int = Query(0, ge=0), limit: int = Query(8000, ge=1, le=8000)):
         return service.content(document_id, offset, limit)
+
+    @application.get('/api/documents/{document_id}/admin-content')
+    async def admin_content(document_id: str, offset: int = Query(0, ge=0), limit: int = Query(8000, ge=1, le=8000)):
+        return service.content(document_id, offset, limit, admin=True)
 
     @application.post("/api/documents/{document_id}/reindex")
     async def reindex_document(document_id: str):

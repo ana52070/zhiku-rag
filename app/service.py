@@ -61,6 +61,16 @@ class EnabledRequest(BaseModel):
     enabled: bool
 
 
+class BatchDocuments(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    document_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class BatchMove(BatchDocuments):
+    library_id: str
+    folder_id: str | None = None
+
+
 class KnowledgeService:
     def __init__(self, directory, embedder=None):
         self.storage = Storage(directory)
@@ -135,9 +145,14 @@ class KnowledgeService:
                 "chunk_count": sum(doc["chunk_count"] for doc in documents if doc["status"] == "ready" and doc["enabled"]),
                 "config": self.public_config()}
 
-    async def upload(self, filename, content, library_id='default', folder_id=None):
+    async def upload(self, filename, content, library_id=None, folder_id=None):
         async with self.lock:
             self.active()
+            if library_id is None:
+                libraries = self.catalog.libraries()
+                if not libraries:
+                    raise BusinessError('请先创建知识库，再上传文件。')
+                library_id = libraries[0]['id']
             self.catalog.validate_location(library_id, folder_id)
             filename = Path(filename.replace("\\", "/")).name[:240]
             suffix, text = await asyncio.to_thread(extract_text, filename, content)
@@ -215,6 +230,26 @@ class KnowledgeService:
                 db.execute('UPDATE documents SET library_id=?,folder_id=? WHERE id=?', (location.library_id, location.folder_id, document_id))
             return self.public_document(self.document(document_id))
 
+    async def batch_move(self, request):
+        async with self.lock:
+            ids = list(dict.fromkeys(request.document_ids))
+            for identifier in ids:
+                self.document(identifier)
+            self.catalog.validate_location(request.library_id, request.folder_id)
+            with self.storage.connect() as db:
+                db.executemany('UPDATE documents SET library_id=?,folder_id=? WHERE id=?',
+                               [(request.library_id, request.folder_id, identifier) for identifier in ids])
+            return {'moved_count': len(ids)}
+
+    async def batch_delete(self, request):
+        async with self.lock:
+            documents = [self.document(identifier) for identifier in dict.fromkeys(request.document_ids)]
+            with self.storage.connect() as db:
+                db.executemany('DELETE FROM documents WHERE id=?', [(doc['id'],) for doc in documents])
+            for doc in documents:
+                (self.storage.uploads / (doc['id'] + doc['suffix'])).unlink(missing_ok=True)
+            return {'deleted_count': len(documents)}
+
     async def search(self, query, top_k=5, library_id=None):
         request = SearchRequest(query=query, top_k=top_k, library_id=library_id)
         from .access_keys import permitted
@@ -258,10 +293,11 @@ class KnowledgeService:
             results.sort(key=lambda item: item["score"], reverse=True)
             return {"query": request.query, "results": results[:request.top_k]}
 
-    def content(self, document_id, offset=0, limit=8000):
-        self.active()
+    def content(self, document_id, offset=0, limit=8000, admin=False):
+        if not admin:
+            self.active()
         document = self.document(document_id)
-        if not document["enabled"]:
+        if not admin and not document["enabled"]:
             raise BusinessError("该文件已停止参与检索。", 404)
         if offset < 0 or not 1 <= limit <= 8000:
             raise BusinessError("读取范围无效。")

@@ -36,7 +36,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual([hit['document_id'] for hit in hits], [original['id']])
         self.assertEqual(self.client.delete('/api/folders/' + folder['id']).status_code, 409)
 
-    def test_folders_cannot_cross_libraries_and_default_is_persistent(self):
+    def test_folders_cannot_cross_libraries_and_legacy_library_is_ordinary(self):
         a, b = self.library('FAQ'), self.library('错题本')
         parent = self.client.post('/api/folders', json={'name': '设备', 'library_id': a}).json()
         response = self.client.post('/api/folders', json={'name': '子目录', 'library_id': b, 'parent_id': parent['id']})
@@ -46,7 +46,7 @@ class LibraryTests(unittest.TestCase):
         default = self.client.get('/api/libraries').json()['libraries'][0]
         document = self.client.post('/api/documents', files={'file': ('旧资料.txt', b'original')}).json()
         self.assertEqual(document['library_id'], default['id'])
-        self.assertEqual(self.client.delete('/api/libraries/' + default['id']).status_code, 409)
+        self.assertEqual(self.client.delete('/api/libraries/' + default['id']).status_code, 200)
 
     def test_upgrade_existing_nonempty_database_keeps_vectors_and_document_id(self):
         import sqlite3

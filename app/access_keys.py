@@ -65,10 +65,11 @@ class AccessKeys:
 
     def configured(self):
         with self.storage.connect() as db:
-            return bool(db.execute('SELECT 1 FROM access_keys LIMIT 1').fetchone())
+            return bool(db.execute('SELECT 1 FROM access_keys LIMIT 1').fetchone()) or self.storage.get('key_auth_required', False)
 
     def create(self, request):
         self.validate(request)
+        self.storage.put('key_auth_required', True)
         secret = 'zk_' + secrets.token_urlsafe(32)
         identifier = uuid.uuid4().hex
         with self.storage.connect() as db:
@@ -115,3 +116,10 @@ class AccessKeys:
             if not db.execute('UPDATE access_keys SET revoked=1 WHERE id=?', (identifier,)).rowcount:
                 raise BusinessError('API Key 不存在。', 404)
         return {'revoked': True}
+
+    def delete(self, identifier):
+        self.storage.put('key_auth_required', True)
+        with self.storage.connect() as db:
+            if not db.execute('DELETE FROM access_keys WHERE id=?', (identifier,)).rowcount:
+                raise BusinessError('API Key 不存在。', 404)
+        return {'deleted': True}

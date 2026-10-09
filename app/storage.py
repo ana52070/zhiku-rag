@@ -42,21 +42,25 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS libraries (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
                 );
-                INSERT OR IGNORE INTO libraries VALUES ('default', '默认知识库', '0');
                 CREATE TABLE IF NOT EXISTS folders (
                     id TEXT PRIMARY KEY, library_id TEXT NOT NULL REFERENCES libraries(id),
                     parent_id TEXT REFERENCES folders(id), name TEXT NOT NULL
                 );
             """)
             columns = {row[1] for row in connection.execute("PRAGMA table_info(documents)")}
+            initialized = connection.execute("SELECT 1 FROM settings WHERE key='catalog_initialized'").fetchone()
+            if not initialized:
+                connection.execute("INSERT OR IGNORE INTO libraries VALUES ('default', '待整理资料', '0')")
+                connection.execute("UPDATE libraries SET name='待整理资料' WHERE id='default' AND name='默认知识库'")
+                for identifier, name in [('faq', '技术组FAQ查询'), ('retrospective', '错题本记录'), ('projects', 'AI查询机器人')]:
+                    connection.execute('INSERT OR IGNORE INTO libraries VALUES (?,?,?)', (identifier, name, '1'))
+                connection.execute("INSERT INTO settings VALUES ('catalog_initialized','true')")
             if "library_id" not in columns:
                 # SQLite 对非空旧表禁止新增带非空默认值的外键列，先加列再归库。
                 connection.execute("ALTER TABLE documents ADD COLUMN library_id TEXT REFERENCES libraries(id)")
             connection.execute("UPDATE documents SET library_id='default' WHERE library_id IS NULL")
             if "folder_id" not in columns:
                 connection.execute("ALTER TABLE documents ADD COLUMN folder_id TEXT REFERENCES folders(id)")
-            for identifier, name in [('faq', '技术组FAQ查询'), ('retrospective', '错题本记录'), ('projects', 'AI查询机器人')]:
-                connection.execute('INSERT OR IGNORE INTO libraries VALUES (?,?,?)', (identifier, name, '1'))
 
     @contextmanager
     def connect(self):

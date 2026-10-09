@@ -20,7 +20,7 @@ class NamedResource(BaseModel):
 
 class Location(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    library_id: str = 'default'
+    library_id: str
     folder_id: str | None = None
 
 
@@ -77,7 +77,19 @@ class Catalog:
     def delete_library(self, library_id):
         self.validate_location(library_id)
         with self.storage.connect() as db:
-            if library_id == 'default' or db.execute('SELECT 1 FROM documents WHERE library_id=?', (library_id,)).fetchone() or db.execute('SELECT 1 FROM folders WHERE library_id=?', (library_id,)).fetchone():
-                raise BusinessError('默认知识库或非空知识库不能删除。', 409)
+            documents = db.execute('SELECT id,suffix FROM documents WHERE library_id=?', (library_id,)).fetchall()
+            db.execute('DELETE FROM documents WHERE library_id=?', (library_id,))
+            db.execute('UPDATE folders SET parent_id=NULL WHERE library_id=?', (library_id,))
+            db.execute('DELETE FROM folders WHERE library_id=?', (library_id,))
             db.execute('DELETE FROM libraries WHERE id=?', (library_id,))
+        for document in documents:
+            (self.storage.uploads / (document['id'] + document['suffix'])).unlink(missing_ok=True)
         return {'deleted': True}
+
+    def update_library(self, library_id, name):
+        self.validate_location(library_id)
+        with self.storage.connect() as db:
+            if db.execute('SELECT 1 FROM libraries WHERE name=? AND id<>?', (name, library_id)).fetchone():
+                raise BusinessError('知识库名称已存在。', 409)
+            db.execute('UPDATE libraries SET name=? WHERE id=?', (name, library_id))
+        return next(lib for lib in self.libraries() if lib['id'] == library_id)
