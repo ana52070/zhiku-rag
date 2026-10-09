@@ -8,6 +8,20 @@ from app.embedding import HTTPEmbedding
 
 
 class EmbeddingHTTPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_progress_advances_only_after_completed_embedding_batch(self):
+        from app.progress import Operations
+        operations=Operations();identifier='f'*32;seen=[]
+        def handle(request):
+            seen.append(operations.get(identifier).get('current',0))
+            size=len(json.loads(request.content)['input'])
+            return httpx.Response(200,json={'data':[{'index':i,'embedding':[1.0,0.0]} for i in range(size)]})
+        real_client=httpx.AsyncClient
+        with operations.track(identifier,'reindex'),patch('app.embedding.httpx.AsyncClient',side_effect=lambda **kw:real_client(transport=httpx.MockTransport(handle),**kw)):
+            await HTTPEmbedding().embed({'base_url':'https://example.org/v1','model':'fixture','api_key':''},['text']*40)
+            progress=operations.get(identifier)
+            self.assertEqual(progress['current'],40);self.assertEqual(progress['stage_total'],40)
+        self.assertEqual(seen,[0,32])
+
     async def test_reorders_vectors_and_sends_model_and_authorization(self):
         requests = []
         def handle(request):

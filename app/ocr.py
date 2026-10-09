@@ -20,14 +20,17 @@ def engine_status():
     enabled = os.environ.get('RAG_OCR_ENABLED', '1') != '0'
     languages = os.environ.get('RAG_OCR_LANGUAGES', 'chi_sim+eng')
     available = False
+    engine_version = None
     if command and enabled:
         try:
             result = subprocess.run([command, '--list-langs'], capture_output=True, text=True, timeout=10)
             installed = set(result.stdout.splitlines()[1:])
+            version = subprocess.run([command, '--version'], capture_output=True, text=True, timeout=10)
+            engine_version = version.stdout.splitlines()[0].removeprefix('tesseract ').strip() if version.returncode == 0 and version.stdout else None
             available = result.returncode == 0 and all(lang in installed for lang in languages.split('+'))
         except (OSError, subprocess.TimeoutExpired):
             pass
-    return {'enabled': enabled, 'available': available, 'engine': 'Tesseract', 'languages': languages, 'version': EXTRACTION_VERSION}
+    return {'enabled': enabled, 'available': available, 'engine': 'Tesseract', 'engine_version': engine_version, 'local': True, 'device': 'CPU', 'languages': languages, 'version': EXTRACTION_VERSION}
 
 
 def recognize_image(raw):

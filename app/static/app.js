@@ -66,6 +66,7 @@ function renderStatus() {
   document.querySelectorAll('[data-action="reindex-all"]').forEach(button => { button.disabled = !status.enabled || !status.config.configured || state.busy || !status.document_count; });
   $('#search-submit').disabled = !status.enabled || state.busy;
   $('#model-configured').textContent = status.config.configured ? `当前模型：${status.config.model}` : '尚未配置';
+  $('#ocr-engine-details').textContent = status.ocr?.available ? `${status.ocr.engine} ${status.ocr.engine_version || ''} · CPU · ${status.ocr.languages} · 本地运行` : '本地 OCR 未就绪，请检查引擎和语言包。';
   $('#ocr-status').textContent = status.ocr?.available ? '本地中英 OCR 已就绪 · 图片文字标记来源后参与检索' : '本地 OCR 未就绪 · 图片中的文字暂不能参与检索';
   $('#mcp-url').value = `${location.origin}/mcp/`;
   $('#mcp-auth-description').textContent = status.mcp_auth ? '已启用 MCP 访问保护。请在下方配置中使用 API Key 授权页创建的只读凭证。' : '当前未设置 MCP 令牌，仅适合本机访问。对外提供服务前请设置 RAG_MCP_TOKEN。';
@@ -133,6 +134,7 @@ async function uploadFiles(files) {
   if (!files.length) return;
   await busyTask(async () => {
     $('#upload-progress').hidden = false;
+    const uploadStarted = Date.now();
     let successful = 0;
     let failed = 0;
     const messages = [];
@@ -143,12 +145,13 @@ async function uploadFiles(files) {
         const body = new FormData(); body.append('file', file);
         const params = new URLSearchParams({library_id: catalogState.library});
         if (catalogState.folder) params.set('folder_id', catalogState.folder);
-        const document = await api(`/api/documents?${params}`, {method: 'POST', body});
+        const document = await trackedOperation(`/api/documents?${params}`, {method: 'POST', body}, {title: '上传资料', batch: true, index, total: files.length, filename: file.name, started: uploadStarted});
         if (document.status === 'failed') { failed++; messages.push(`${document.filename}：${document.error}`); }
         else successful++;
       } catch (error) { failed++; messages.push(error.message); }
     }
     $('#upload-progress').textContent = `完成：${successful} 份文件已保存${failed ? `，${failed} 份需检查。${messages.join('；')}` : '。'}${!state.status?.config.configured ? ' 配置模型后，请重建索引。' : ''}`;
+    renderOperation({state: failed ? 'failed' : 'complete', stage: 'done', completed: files.length, total: files.length, current: 0}, {title: '上传资料', started: uploadStarted});
     toast(failed ? '部分文件处理失败，请查看上传区和文件列表。' : '文件已保存。', !!failed);
     $('#file-input').value = '';
   });
@@ -214,7 +217,7 @@ for (const name of ['dragleave', 'drop']) drop.addEventListener(name, event => {
 drop.addEventListener('drop', event => { if (state.status?.enabled && !state.busy) uploadFiles(event.dataTransfer.files); else toast('上传暂不可用，请恢复业务或等待当前操作完成。', true); });
 document.querySelectorAll('[data-action="reindex-all"]').forEach(button => button.addEventListener('click', () => busyTask(async () => {
   toast('正在重建全部索引，请等待完成。');
-  const result = await api('/api/reindex', {method: 'POST'});
+  const result = await trackedOperation('/api/reindex', {method: 'POST'}, {title: '重建索引', total: state.documents.length});
   toast(result.failed_count ? `${result.failed_count} 份文件索引失败，请查看列表并重试。` : '全部文件索引已重建。', !!result.failed_count);
 })));
 $('#file-list').addEventListener('click', event => {
@@ -229,7 +232,7 @@ $('#file-list').addEventListener('click', event => {
       await api(`/api/documents/${file.id}`, {method: 'PATCH', body: {enabled: !file.enabled}} );
       toast(file.enabled ? '文件已停止参与检索。' : '文件已启用。');
     } else {
-      const result = await api(`/api/documents/${file.id}/reindex`, {method: 'POST'});
+      const result = await trackedOperation(`/api/documents/${file.id}/reindex`, {method: 'POST'}, {title: '重建索引', total: 1, filename: file.filename});
       toast(result.status === 'failed' ? result.error : '文件索引已重建。', result.status === 'failed');
     }
   });

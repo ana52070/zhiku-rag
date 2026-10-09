@@ -198,6 +198,8 @@ def extract_document(filename, content, recognizer=None):
     import hashlib
     import time
     from .ocr import recognize_image, render_pdf_page, EXTRACTION_VERSION
+    from .progress import report
+    report(stage='parsing',current=0,stage_total=None)
     suffix, native = extract_text(filename, content, allow_empty=True)
     recognizer = recognizer or recognize_image
     info = {'version': EXTRACTION_VERSION, 'state': 'not_needed', 'images': 0, 'recognized': 0, 'warnings': []}
@@ -205,6 +207,7 @@ def extract_document(filename, content, recognizer=None):
     cache = {}; started = time.monotonic()
     def append_ocr(label, image):
         info['images'] += 1
+        report(stage='ocr',current=info['images']-1,stage_total=None,source=label)
         if info['images'] > 200 or time.monotonic() - started > 600:
             info['warnings'].append('OCR 达到处理上限，请拆分文档后重试。'); return
         try:
@@ -216,6 +219,7 @@ def extract_document(filename, content, recognizer=None):
                 info['recognized'] += 1
         except (ValueError, OSError) as error:
             info['warnings'].append(label + '：' + str(error))
+        report(current=info['images'])
     if suffix == '.pdf':
         reader = PdfReader(io.BytesIO(content))
         for index, page in enumerate(reader.pages):

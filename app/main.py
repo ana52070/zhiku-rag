@@ -120,6 +120,8 @@ def create_app(data_dir=None, embedder=None):
 
     application = FastAPI(title="知库 RAG 管理服务", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     application.state.service = service
+    from .progress import Operations
+    operations=Operations()
     application.add_middleware(AccessControl, admin_token=os.environ.get("RAG_ADMIN_TOKEN", ""), mcp_token=os.environ.get("RAG_MCP_TOKEN", ""), allowed_hosts=allowed_hosts, service=service)
 
     @application.exception_handler(BusinessError)
@@ -265,10 +267,11 @@ def create_app(data_dir=None, embedder=None):
         return await service.move_document(document_id, request)
 
     @application.post("/api/documents", status_code=201)
-    async def upload(file: UploadFile = File(...), library_id: str | None = Query(None), folder_id: str | None = Query(None)):
+    async def upload(file: UploadFile = File(...), library_id: str | None = Query(None), folder_id: str | None = Query(None), operation_id: str | None = Query(None, pattern=r'^[a-f0-9]{32}$')):
         service.active()
         content = await file.read(MAX_UPLOAD + 1)
-        return await service.upload(file.filename or "未命名.txt", content, library_id, folder_id)
+        with operations.track(operation_id,'upload'):
+            return await service.upload(file.filename or "未命名.txt", content, library_id, folder_id)
 
     @application.patch("/api/documents/{document_id}")
     async def update_document(document_id: str, request: EnabledRequest):
@@ -297,12 +300,18 @@ def create_app(data_dir=None, embedder=None):
         return service.content(document_id, offset, limit, admin=True)
 
     @application.post("/api/documents/{document_id}/reindex")
-    async def reindex_document(document_id: str):
-        return await service.reindex(document_id)
+    async def reindex_document(document_id: str, operation_id: str | None = Query(None, pattern=r'^[a-f0-9]{32}$')):
+        with operations.track(operation_id,'reindex'):
+            return await service.reindex(document_id)
 
     @application.post("/api/reindex")
-    async def reindex():
-        return await service.reindex()
+    async def reindex(operation_id: str | None = Query(None, pattern=r'^[a-f0-9]{32}$')):
+        with operations.track(operation_id,'reindex'):
+            return await service.reindex()
+
+    @application.get('/api/operations/{operation_id}')
+    async def operation_progress(operation_id: str):
+        return operations.get(operation_id)
 
     @application.post("/api/search")
     async def search(request: SearchRequest):

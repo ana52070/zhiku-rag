@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/vendor/jszip.min.js"></script>
   <script defer src="/static/vendor/docx-preview.min.js"></script>
+  <script defer src="/static/progress.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -41,6 +42,7 @@
     <header class="topbar"><span id="breadcrumb">工作台 / 知识库</span><div class="top-actions"><span id="connection-state" class="connection">正在连接</span><button id="refresh-button" class="icon-button" aria-label="刷新数据" title="刷新数据"><svg class="icon"><use href="#i-refresh"/></svg></button><button id="auth-button" class="text-button"><svg class="icon"><use href="#i-key"/></svg>访问令牌</button></div></header>
     <main id="main">
       <div id="global-alert" class="alert error" role="alert" hidden></div>
+      <section id="operation-progress" class="operation-progress" aria-label="操作进度" hidden><div class="task-heading"><h2 id="task-title">处理资料</h2><span id="task-elapsed"></span></div><p id="task-summary" role="status" aria-live="polite"></p><progress id="task-overall" max="100" value="0" aria-label="文件处理总进度"></progress><p id="task-file"></p><div class="task-heading"><span id="task-stage-label">等待处理</span></div><progress id="task-stage" max="1" aria-label="当前阶段进度"></progress></section>
       <section id="page-library" class="page">
         <div class="page-heading"><div><span class="eyebrow">研发部 / 知识管理</span><h1>知识，从这里连接</h1><p>技术解答、经验复盘与项目资料，在各自的知识库中沉淀。</p></div><button class="primary" id="new-library"><svg class="icon"><use href="#i-book"/></svg>新建知识库</button></div>
         <div id="library-cards" class="library-cards" aria-label="选择知识库"></div>
@@ -60,7 +62,7 @@
             <label class="drop-zone" id="drop-zone"><input type="file" id="file-input" accept=".txt,.md,.pdf,.docx,.xlsx,.pptx,.csv" multiple><span class="upload-icon"><svg class="icon"><use href="#i-upload"/></svg></span><strong>拖入文件，或点击选择</strong><span>TXT / Markdown / PDF / Office / CSV</span><small>单个文件最大 50 MiB</small></label>
             <div id="upload-progress" class="upload-progress" role="status" hidden></div>
             <div class="flow-guide"><h3>资料如何成为知识</h3><ol><li><span>提取文字</span><p>读取文档文字和可解析的表格。</p></li><li><span>建立索引</span><p>按片段生成可检索的向量。</p></li><li><span>回答附带来源</span><p>通过 MCP 返回片段与原文件。</p></li></ol></div>
-            <p class="footnote" id="ocr-status">正在读取本地 OCR 状态。</p><p class="footnote">支持扫描 PDF 与 Office 内嵌图片文字识别；旧版 .doc/.xls/.ppt 请另存为 .docx/.xlsx/.pptx 后上传。</p>
+            <p class="footnote" id="ocr-status">正在读取本地 OCR 状态。</p><details class="ocr-explainer"><summary>本地 OCR 具体信息</summary><p id="ocr-engine-details"></p><p>在当前 VPS 的 CPU 上识别，使用简体中文和英文语言包；单张图片最长 30 秒，每份文档最多处理 200 张图片。扫描 PDF 先渲染页面，再识别文字。</p><p>图片不会发送到 OCR 云服务；识别出的文字会发送到你配置的 embedding 接口建立索引。OCR 可能错字，不解析图表含义。</p></details><p class="footnote">支持扫描 PDF 与 Office 内嵌图片文字识别；旧版 .doc/.xls/.ppt 请另存为 .docx/.xlsx/.pptx 后上传。</p>
           </aside>
         </div>
       </section>

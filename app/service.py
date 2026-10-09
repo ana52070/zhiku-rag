@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from .documents import extract_document, split_text
 from .embedding import HTTPEmbedding, validate_vectors
 from .storage import Storage
+from .progress import report, document_done
 
 
 class BusinessError(Exception):
@@ -147,6 +148,7 @@ class KnowledgeService:
                 "config": self.public_config()}
 
     async def upload(self, filename, content, library_id=None, folder_id=None):
+        report(total=1,filename=Path(filename.replace('\\','/')).name[:240])
         async with self.lock:
             self.active()
             if library_id is None:
@@ -169,10 +171,13 @@ class KnowledgeService:
                 raise
             if self.config()["model"]:
                 await self._index(document_id)
-            return self.public_document(self.document(document_id))
+            result=self.public_document(self.document(document_id))
+            document_done(result['status']=='failed')
+            return result
 
     async def _index(self, document_id):
         document = self.document(document_id)
+        report(filename=document['filename'],stage='parsing',current=0,stage_total=None)
         from .ocr import EXTRACTION_VERSION
         extraction = json.loads(document.get('extraction_info', '{}'))
         if extraction.get('version') != EXTRACTION_VERSION or extraction.get('state') == 'partial':
@@ -187,15 +192,18 @@ class KnowledgeService:
                     connection.execute("UPDATE documents SET status='failed',error=? WHERE id=?", (str(error), document_id))
                 return
         pieces = split_text(document["text"])
+        report(stage='embedding',current=0,stage_total=len(pieces))
         with self.storage.connect() as connection:
             connection.execute("UPDATE documents SET status='processing',error='' WHERE id=?", (document_id,))
         try:
             vectors = await self.embedder.embed(self.config(), pieces)
             dimension = validate_vectors(vectors, len(pieces))
+            report(current=len(pieces))
         except ValueError as error:
             with self.storage.connect() as connection:
                 connection.execute("UPDATE documents SET status='failed',error=? WHERE id=?", (str(error), document_id))
             return
+        report(stage='saving',current=0,stage_total=None)
         with self.storage.connect() as connection:
             connection.execute("DELETE FROM chunks WHERE document_id=?", (document_id,))
             connection.executemany("INSERT INTO chunks(document_id,chunk_index,text,vector) VALUES(?,?,?,?)",
@@ -209,8 +217,10 @@ class KnowledgeService:
             if not self.config()["model"]:
                 raise BusinessError("请先配置 embedding 模型。")
             ids = [document_id] if document_id else [doc["id"] for doc in self.documents()]
+            report(total=len(ids))
             for selected_id in ids:
                 await self._index(selected_id)
+                document_done(self.document(selected_id)['status']=='failed')
             if document_id:
                 return self.public_document(self.document(document_id))
             documents = self.documents()

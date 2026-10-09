@@ -2,6 +2,7 @@ import math
 import json
 
 import httpx
+from .progress import report
 
 
 def validate_vectors(vectors, count):
@@ -44,6 +45,7 @@ class HTTPEmbedding:
                     vectors = [item["embedding"] for item in ordered]
                     validate_vectors(vectors, len(batch))
                     result.extend(vectors)
+                    report(stage='embedding',current=len(result),stage_total=len(texts))
         except httpx.TimeoutException:
             raise ValueError("模型接口响应超时，请检查网络或缩小文件后重试。") from None
         except httpx.RequestError:
