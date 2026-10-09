@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from urllib.parse import urlsplit
 
-from .documents import extract_text, split_text
+from .documents import extract_document, split_text
 from .embedding import HTTPEmbedding, validate_vectors
 from .storage import Storage
 
@@ -124,6 +124,7 @@ class KnowledgeService:
     def public_document(self, document):
         doc_id = document.get("id", "")
         res = {key: (bool(value) if key == "enabled" else value) for key, value in document.items() if key not in {"text", "fingerprint", "suffix"}}
+        res['extraction_info'] = json.loads(document.get('extraction_info', '{}'))
         if doc_id:
             from .access_keys import source_url
             res["download_url"] = source_url(doc_id, self.storage)
@@ -155,14 +156,14 @@ class KnowledgeService:
                 library_id = libraries[0]['id']
             self.catalog.validate_location(library_id, folder_id)
             filename = Path(filename.replace("\\", "/")).name[:240]
-            suffix, text = await asyncio.to_thread(extract_text, filename, content)
+            suffix, text, extraction = await asyncio.to_thread(extract_document, filename, content)
             document_id = uuid.uuid4().hex
             path = self.storage.uploads / (document_id + suffix)
             path.write_bytes(content)
             try:
                 with self.storage.connect() as connection:
-                    connection.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status,library_id,folder_id) VALUES(?,?,?,?,?,?,?,?,?)",
-                                       (document_id, filename, suffix, len(content), text, datetime.now(timezone.utc).isoformat(), "pending", library_id, folder_id))
+                    connection.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status,library_id,folder_id,extraction_info) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                       (document_id, filename, suffix, len(content), text, datetime.now(timezone.utc).isoformat(), "pending", library_id, folder_id, json.dumps(extraction, ensure_ascii=False)))
             except Exception:
                 path.unlink(missing_ok=True)
                 raise
@@ -172,6 +173,19 @@ class KnowledgeService:
 
     async def _index(self, document_id):
         document = self.document(document_id)
+        from .ocr import EXTRACTION_VERSION
+        extraction = json.loads(document.get('extraction_info', '{}'))
+        if extraction.get('version') != EXTRACTION_VERSION or extraction.get('state') == 'partial':
+            path = self.storage.uploads / (document_id + document['suffix'])
+            try:
+                _, text, extraction = await asyncio.to_thread(extract_document, document['filename'], path.read_bytes())
+                with self.storage.connect() as connection:
+                    connection.execute('UPDATE documents SET text=?,extraction_info=?,status=\'stale\' WHERE id=?', (text, json.dumps(extraction, ensure_ascii=False), document_id))
+                document = self.document(document_id)
+            except (ValueError, OSError) as error:
+                with self.storage.connect() as connection:
+                    connection.execute("UPDATE documents SET status='failed',error=? WHERE id=?", (str(error), document_id))
+                return
         pieces = split_text(document["text"])
         with self.storage.connect() as connection:
             connection.execute("UPDATE documents SET status='processing',error='' WHERE id=?", (document_id,))
@@ -215,6 +229,7 @@ class KnowledgeService:
             (self.storage.uploads / (document_id + document["suffix"])).unlink(missing_ok=True)
             with self.storage.connect() as connection:
                 connection.execute("DELETE FROM documents WHERE id=?", (document_id,))
+            self.storage.remove_preview(document_id)
             return {"deleted": True}
 
     async def set_enabled(self, enabled):
@@ -248,6 +263,7 @@ class KnowledgeService:
                 db.executemany('DELETE FROM documents WHERE id=?', [(doc['id'],) for doc in documents])
             for doc in documents:
                 (self.storage.uploads / (doc['id'] + doc['suffix'])).unlink(missing_ok=True)
+                self.storage.remove_preview(doc['id'])
             return {'deleted_count': len(documents)}
 
     async def search(self, query, top_k=5, library_id=None):

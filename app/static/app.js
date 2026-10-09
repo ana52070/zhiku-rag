@@ -51,9 +51,7 @@ function renderStatus() {
   const status = state.status;
   if (!status) return;
   $('#nav-count').textContent = status.document_count;
-  $('#document-count').textContent = status.document_count;
-  $('#ready-count').textContent = status.ready_count;
-  $('#chunk-count').textContent = status.chunk_count;
+  renderLibrarySummary();
   $('#side-state').textContent = status.enabled ? '业务运行中' : '业务已暂停';
   $('#connection-state').textContent = status.enabled ? '已连接 · 运行中' : '已连接 · 已暂停';
   $('#side-dot').className = `dot ${status.enabled ? '' : 'paused'}`;
@@ -68,6 +66,7 @@ function renderStatus() {
   document.querySelectorAll('[data-action="reindex-all"]').forEach(button => { button.disabled = !status.enabled || !status.config.configured || state.busy || !status.document_count; });
   $('#search-submit').disabled = !status.enabled || state.busy;
   $('#model-configured').textContent = status.config.configured ? `当前模型：${status.config.model}` : '尚未配置';
+  $('#ocr-status').textContent = status.ocr?.available ? '本地中英 OCR 已就绪 · 图片文字标记来源后参与检索' : '本地 OCR 未就绪 · 图片中的文字暂不能参与检索';
   $('#mcp-url').value = `${location.origin}/mcp/`;
   $('#mcp-auth-description').textContent = status.mcp_auth ? '已启用 MCP 访问保护。请在下方配置中使用 API Key 授权页创建的只读凭证。' : '当前未设置 MCP 令牌，仅适合本机访问。对外提供服务前请设置 RAG_MCP_TOKEN。';
   $('#auth-description').textContent = status.admin_auth ? '管理员令牌保护已开启。MCP 使用独立令牌；对外部署还需设置允许访问的主机名及 HTTPS。' : '当前未设置管理员令牌。默认 Docker 仅发布到本机；内网或公网访问前请设置管理员令牌和 MCP 令牌。';
@@ -87,7 +86,9 @@ function renderFiles() {
     const disabledIndex = state.busy || !state.status?.enabled || !state.status?.config.configured ? 'disabled' : '';
     const size = file.size < 1024 ? `${file.size} B` : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KiB` : `${(file.size / 1024 / 1024).toFixed(1)} MiB`;
     const downloadUrl = `/api/documents/${file.id}/download`;
-    return `<article class="file-row"><input class="file-select" type="checkbox" aria-label="选择 ${escapeHtml(file.filename)}" data-select-file="${file.id}" ${selectedFiles.has(file.id) ? 'checked' : ''} ${disabled}><span class="file-type"><svg class="icon"><use href="#i-file"/></svg></span><div class="file-information"><h3 class="file-name">${escapeHtml(file.filename)}</h3><div class="file-details"><span>${size}</span><span>${file.chunk_count} 个片段</span><span>${new Date(file.created_at).toLocaleDateString('zh-CN')}</span><span class="badge ${escapeHtml(file.status)}">${labels[file.status] || escapeHtml(file.status)}</span>${file.enabled ? '' : '<span class="badge disabled">已禁用</span>'}</div>${file.error ? `<p class="file-error">${escapeHtml(file.error)}</p>` : ''}</div><div class="file-controls"><a class="text-button" href="${downloadUrl}" download="${escapeHtml(file.filename)}" target="_blank" style="text-decoration:none;">下载</a><button class="text-button" data-file-action="move" data-id="${file.id}" ${disabled}>移动</button><button class="text-button" data-file-action="preview" data-id="${file.id}" ${disabled} >预览</button><button class="text-button" data-file-action="reindex" data-id="${file.id}" ${disabledIndex}>重建</button><button class="text-button" data-file-action="toggle" data-id="${file.id}" ${disabled}>${file.enabled ? '禁用' : '启用'}</button><button class="text-button delete-button" data-file-action="delete" data-id="${file.id}" ${disabled}>删除</button></div></article>`;
+    const extraction = file.extraction_info || {};
+    const ocr = extraction.state === 'partial' ? `<p class="ocr-detail warning">OCR 需检查：${escapeHtml(extraction.warnings?.[0] || '部分图片未识别')}</p>` : extraction.state === 'complete' ? `<p class="ocr-detail">OCR 已处理 ${extraction.images} 张图片，${extraction.recognized} 张识别到文字</p>` : !extraction.version ? '<p class="ocr-detail">旧解析记录 · 重建索引后可补充图片 OCR</p>' : '';
+    return `<article class="file-row"><input class="file-select" type="checkbox" aria-label="选择 ${escapeHtml(file.filename)}" data-select-file="${file.id}" ${selectedFiles.has(file.id) ? 'checked' : ''} ${disabled}><span class="file-type"><svg class="icon"><use href="#i-file"/></svg></span><div class="file-information"><h3 class="file-name">${escapeHtml(file.filename)}</h3><div class="file-details"><span>${size}</span><span>${file.chunk_count} 个片段</span><span>${new Date(file.created_at).toLocaleDateString('zh-CN')}</span><span class="badge ${escapeHtml(file.status)}">${labels[file.status] || escapeHtml(file.status)}</span>${file.enabled ? '' : '<span class="badge disabled">已禁用</span>'}</div>${file.error ? `<p class="file-error">${escapeHtml(file.error)}</p>` : ''}${ocr}</div><div class="file-controls"><a class="text-button" href="${downloadUrl}" download="${escapeHtml(file.filename)}" target="_blank">下载</a><button class="text-button" data-file-action="move" data-id="${file.id}" ${disabled}>移动</button><button class="text-button" data-file-action="preview" data-id="${file.id}" ${disabled} >预览</button><button class="text-button" data-file-action="reindex" data-id="${file.id}" ${disabledIndex}>重建</button><button class="text-button" data-file-action="toggle" data-id="${file.id}" ${disabled}>${file.enabled ? '禁用' : '启用'}</button><button class="text-button delete-button" data-file-action="delete" data-id="${file.id}" ${disabled}>删除</button></div></article>`;
   }).join('');
 }
 
@@ -154,19 +155,32 @@ async function uploadFiles(files) {
 }
 
 async function loadPreview(documentId, offset = 0, original = false) {
-  const response = await fetch(`/api/documents/${documentId}/preview`, {headers: {Authorization: `Bearer ${state.token}`}});
+  const file = state.documents.find(item => item.id === documentId);
+  const word = file?.filename.toLowerCase().endsWith('.docx');
+  const response = await fetch(`/api/documents/${documentId}/${word ? 'preview-source' : 'preview'}`, {headers: {Authorization: `Bearer ${state.token}`}});
   if (!response.ok) throw new Error('预览失败，请确认源文件与管理员令牌。');
   if (state.preview?.blob) URL.revokeObjectURL(state.preview.blob);
-  const file = state.documents.find(item => item.id === documentId);
   state.preview = {id: documentId, next: null, original};
   $('#preview-name').textContent = file?.filename || '文档预览';
-  $('#preview-meta').textContent = '内容预览 · Office 展示正文与表格，PDF 展示原页面';
+  $('#preview-meta').textContent = word ? 'Word 页面预览 · 保留图片与表格；复杂排版可能存在差异' : file?.filename.toLowerCase().endsWith('.xlsx') ? '工作表预览 · 支持切换工作表，展示保存的单元格结果与图片' : file?.filename.toLowerCase().endsWith('.pptx') ? '幻灯片预览 · 展示图片和文字位置；复杂图表及动画可能不完整' : '原文件预览';
   $('#preview-content').hidden = true; $('#preview-rendered').hidden = false; $('#preview-pdf').hidden = true; $('#preview-next').hidden = true;
   $('#preview-mode').textContent = '提取原文';
   if (response.headers.get('content-type').includes('application/pdf')) {
     state.preview.blob = URL.createObjectURL(await response.blob());
     $('#preview-pdf').src = state.preview.blob; $('#preview-pdf').hidden = false; $('#preview-rendered').hidden = true;
-  } else $('#preview-rendered').innerHTML = await response.text();
+    if (word) $('#preview-meta').textContent = '复杂 Word 页面预览 · 按需转换为 PDF；原 DOCX 保持不变';
+  } else if (word) {
+    const styles = document.createElement('div');
+    const body = document.createElement('div'); body.className = 'word-preview-body';
+    await docx.renderAsync(await response.arrayBuffer(), body, styles, {useBase64URL: true, renderAltChunks: false, renderHeaders: true, renderFooters: true, renderFootnotes: true, ignoreLastRenderedPageBreak: false});
+    styles.querySelectorAll('style').forEach(style => { style.nonce = $('meta[name="style-nonce"]').content; });
+    $('#preview-rendered').replaceChildren(styles, body);
+  } else {
+    const template = document.createElement('template'); template.innerHTML = await response.text();
+    const styles = [...template.content.querySelectorAll('[data-preview-style]')].map(node => { const css = node.getAttribute('data-preview-style'); node.removeAttribute('data-preview-style'); return [node, css]; });
+    $('#preview-rendered').replaceChildren(template.content);
+    styles.forEach(([node, css]) => { node.style.cssText = css; });
+  }
   if (original) await loadOriginal(offset);
   if (!$('#preview-dialog').open) $('#preview-dialog').showModal();
 }
@@ -251,7 +265,7 @@ $('#search-form').addEventListener('submit', event => {
       $('#search-meta').textContent = `${result.results.length} 个片段，用时 ${((performance.now() - started) / 1000).toFixed(2)} 秒`;
       $('#search-results').innerHTML = result.results.length ? result.results.map(hit => {
         const downloadUrl = `/api/documents/${hit.document_id}/download`;
-        return `<article class="result"><div class="result-header"><svg class="icon"><use href="#i-file"/></svg><h3>${escapeHtml(hit.filename)}</h3><span>片段 ${hit.chunk_index}</span><span class="similarity">相似度 ${hit.score.toFixed(3)}</span></div><p>${escapeHtml(hit.text)}</p><div style="margin-top:0.5rem;display:flex;gap:0.75rem;"><button class="text-button" data-preview-id="${hit.document_id}">查看原文</button><a class="text-button" href="${downloadUrl}" download="${escapeHtml(hit.filename)}" target="_blank" style="text-decoration:none;">下载源文件</a></div></article>`;
+        return `<article class="result"><div class="result-header"><svg class="icon"><use href="#i-file"/></svg><h3>${escapeHtml(hit.filename)}</h3><span>片段 ${hit.chunk_index}</span><span class="similarity">相似度 ${hit.score.toFixed(3)}</span></div><p>${escapeHtml(hit.text)}</p><div class="result-links"><button class="text-button" data-preview-id="${hit.document_id}">查看原文</button><a class="text-button" href="${downloadUrl}" download="${escapeHtml(hit.filename)}" target="_blank">下载源文件</a></div></article>`;
       }).join('') : '<div class="quiet-empty"><h3>暂无匹配的片段</h3><p>请先上传文件并完成索引，检查文件是否启用，以及模型变化后是否已重建。</p></div>';
     } finally { $('#search-submit').innerHTML = '<svg class="icon"><use href="#i-search"/></svg>开始检索'; }
   });
@@ -283,6 +297,7 @@ function renderCatalog() {
   if (state.status) $('#file-input').disabled = !state.status.enabled || state.busy || !catalogState.library;
   $('#library-cards').innerHTML = catalogState.libraries.map(lib => `<button class="library-card ${lib.id === catalogState.library ? 'selected' : ''}" data-library="${escapeHtml(lib.id)}" aria-pressed="${lib.id === catalogState.library}"><span class="card-icon"><svg class="icon"><use href="#i-book"/></svg></span><strong>${escapeHtml(lib.name)}</strong><span>${escapeHtml(libraryDescriptions[lib.id] || '独立管理的知识资料')}</span><small>${lib.document_count} 份文件<span>${lib.id === catalogState.library ? '当前知识库' : '打开知识库 →'}</span></small></button>`).join('');
   const library = catalogState.libraries.find(lib => lib.id === catalogState.library);
+  renderLibrarySummary();
   $('#collection-title').textContent = library?.name || '知识库';
   const path = folderPath(catalogState.folder);
     $('#upload-location').textContent = library ? `上传到：${library.name}${path ? ' / ' + path : ' / 根目录'}` : '请先新建知识库，再上传资料。';
@@ -432,3 +447,16 @@ $('#copy-mcp-json').addEventListener('click', () => copyConfiguration('mcp-json'
 $('#copy-agent-prompt').addEventListener('click', () => copyConfiguration('agent-prompt'));
 renderMcpConfiguration();
 refresh(true);
+
+function renderLibrarySummary() {
+  const documents = state.documents.filter(file => file.library_id === catalogState.library);
+  const ready = documents.filter(file => file.enabled && file.status === 'ready');
+  $('#document-count').textContent = documents.length;
+  $('#ready-count').textContent = ready.length;
+  $('#chunk-count').textContent = ready.reduce((total, file) => total + file.chunk_count, 0);
+}
+$('#preview-rendered').addEventListener('click', event => {
+  const tab = event.target.closest('[data-sheet-tab]'); if (!tab) return;
+  $('#preview-rendered').querySelectorAll('[data-sheet-panel]').forEach(panel => { panel.hidden = panel.dataset.sheetPanel !== tab.dataset.sheetTab; });
+  $('#preview-rendered').querySelectorAll('[data-sheet-tab]').forEach(button => { button.setAttribute('aria-selected', String(button === tab)); });
+});

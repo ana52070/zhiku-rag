@@ -10,6 +10,8 @@ services:
       RAG_MCP_TOKEN: ${RAG_MCP_TOKEN:-}
       RAG_ALLOWED_HOSTS: ${RAG_ALLOWED_HOSTS:-localhost,127.0.0.1,::1}
       RAG_PUBLIC_URL: ${RAG_PUBLIC_URL:-http://127.0.0.1:8010}
+      RAG_OCR_ENABLED: ${RAG_OCR_ENABLED:-1}
+      RAG_OCR_LANGUAGES: ${RAG_OCR_LANGUAGES:-chi_sim+eng}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

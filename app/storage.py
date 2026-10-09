@@ -61,6 +61,8 @@ class Storage:
             connection.execute("UPDATE documents SET library_id='default' WHERE library_id IS NULL")
             if "folder_id" not in columns:
                 connection.execute("ALTER TABLE documents ADD COLUMN folder_id TEXT REFERENCES folders(id)")
+            if 'extraction_info' not in columns:
+                connection.execute("ALTER TABLE documents ADD COLUMN extraction_info TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def connect(self):
@@ -84,6 +86,14 @@ class Storage:
 
     def encrypt(self, value):
         return self.cipher.encrypt(value.encode()).decode() if value else ""
+
+    def remove_preview(self, document_id):
+        import re
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', document_id): return
+        directory = self.directory / 'preview-cache'
+        if directory.exists():
+            for path in directory.glob(document_id + '-*.pdf'):
+                path.unlink(missing_ok=True)
 
     def decrypt(self, value):
         return self.cipher.decrypt(value.encode()).decode() if value else ""

@@ -4,9 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#edf5ff">
+  <meta name="style-nonce" content="">
   <title>联大 · 研发部知识平台</title>
   <link rel="icon" href="/static/company-logo.jpg" type="image/jpeg">
   <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/vendor/jszip.min.js"></script>
+  <script defer src="/static/vendor/docx-preview.min.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -28,8 +31,8 @@
       <button class="nav-item active" data-page="library" aria-current="page"><svg class="icon"><use href="#i-book"/></svg>知识库<span id="nav-count">0</span></button>
       <button class="nav-item" data-page="search"><svg class="icon"><use href="#i-search"/></svg>检索试验</button>
       <button class="nav-item" data-page="models"><svg class="icon"><use href="#i-model"/></svg>模型配置</button>
-      <button class="nav-item" data-page="service"><svg class="icon"><use href="#i-plug"/></svg>服务与接入</button>
       <button class="nav-item" data-page="keys"><svg class="icon"><use href="#i-key"/></svg>API Key 授权</button>
+      <button class="nav-item" data-page="service"><svg class="icon"><use href="#i-plug"/></svg>服务与接入</button>
     </nav>
     <div class="sidebar-note"><span class="dot" id="side-dot"></span><span id="side-state">正在连接</span><p>沉淀研发经验<br>让每次回答有据可查</p></div>
     <div class="sidebar-bottom">天津市联大通讯发展有限公司</div>
@@ -45,7 +48,7 @@
         <div id="stale-notice" class="notice warning" hidden><div><strong>模型已改变，部分文件需要重建索引</strong><p>旧向量暂不参与检索。重建后才能用新模型检索这些文件。</p></div><button class="secondary" data-action="reindex-all">重建全部</button></div>
         <div class="library-layout">
           <div class="collection">
-            <div class="collection-summary"><div class="summary-title"><svg class="icon"><use href="#i-book"/></svg><h2 id="collection-title">知识库</h2></div><div class="summary-numbers"><span><b id="document-count">0</b> 平台文件</span><span><b id="ready-count">0</b> 可检索</span><span><b id="chunk-count">0</b> 知识片段</span></div></div>
+            <div class="collection-summary"><div class="summary-title"><svg class="icon"><use href="#i-book"/></svg><h2 id="collection-title">知识库</h2></div><div class="summary-numbers"><span><b id="document-count">0</b> 本库文件</span><span><b id="ready-count">0</b> 可检索</span><span><b id="chunk-count">0</b> 知识片段</span></div></div>
             <div class="directory-toolbar"><div id="folder-breadcrumb" class="folder-breadcrumb"></div><div class="directory-actions"><button id="rename-library" class="text-button">修改知识库</button><button id="delete-library" class="text-button delete-button">删除知识库</button><button id="new-folder" class="text-button">新建文件夹</button><button id="delete-folder" class="text-button" hidden>删除空文件夹</button></div></div>
             <div id="folder-list" class="folder-list"></div>
             <div class="collection-toolbar"><label class="filter-field"><svg class="icon"><use href="#i-search"/></svg><input id="file-filter" type="search" placeholder="查找文件名称" aria-label="查找文件名称"></label><button id="reindex-all" class="text-button" data-action="reindex-all"><svg class="icon"><use href="#i-refresh"/></svg>重建索引</button></div>
@@ -57,7 +60,7 @@
             <label class="drop-zone" id="drop-zone"><input type="file" id="file-input" accept=".txt,.md,.pdf,.docx,.xlsx,.pptx,.csv" multiple><span class="upload-icon"><svg class="icon"><use href="#i-upload"/></svg></span><strong>拖入文件，或点击选择</strong><span>TXT / Markdown / PDF / Office / CSV</span><small>单个文件最大 50 MiB</small></label>
             <div id="upload-progress" class="upload-progress" role="status" hidden></div>
             <div class="flow-guide"><h3>资料如何成为知识</h3><ol><li><span>提取文字</span><p>读取文档文字和可解析的表格。</p></li><li><span>建立索引</span><p>按片段生成可检索的向量。</p></li><li><span>回答附带来源</span><p>通过 MCP 返回片段与原文件。</p></li></ol></div>
-            <p class="footnote">PDF 需包含可提取的文字。旧版 .doc/.xls/.ppt 请另存为 .docx/.xlsx/.pptx 后上传。</p>
+            <p class="footnote" id="ocr-status">正在读取本地 OCR 状态。</p><p class="footnote">支持扫描 PDF 与 Office 内嵌图片文字识别；旧版 .doc/.xls/.ppt 请另存为 .docx/.xlsx/.pptx 后上传。</p>
           </aside>
         </div>
       </section>

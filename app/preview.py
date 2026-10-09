@@ -64,26 +64,9 @@ def render_preview(document, path):
                 blocks.append(table_html([[cell.text for cell in row.cells] for row in table.rows]))
         return ''.join(blocks)
     if suffix == '.xlsx':
-        workbook = openpyxl.load_workbook(path, data_only=True, read_only=True)
-        try:
-            blocks = []
-            for sheet in workbook:
-                rows = (row for row in sheet.iter_rows(values_only=True) if any(cell is not None for cell in row))
-                blocks.append('<h2>' + escape(sheet.title) + '</h2>' + table_html(rows))
-            return ''.join(blocks)
-        finally:
-            workbook.close()
+        from .office_preview import spreadsheet_html
+        return spreadsheet_html(path).replace(' style="', ' data-preview-style="')
     if suffix == '.pptx':
-        slides = Presentation(path)
-        blocks = []
-        for number, slide in enumerate(slides.slides, 1):
-            parts = ['<section class="slide-preview"><h2>第 ' + str(number) + ' 页</h2>']
-            for shape in slide.shapes:
-                if shape.has_text_frame:
-                    parts.extend('<p>' + escape(p.text) + '</p>' for p in shape.text_frame.paragraphs)
-                if shape.has_table:
-                    parts.append(table_html([[cell.text for cell in row.cells] for row in shape.table.rows]))
-            parts.append('</section>')
-            blocks.extend(parts)
-        return ''.join(blocks)
+        from .office_preview import presentation_html
+        return presentation_html(path)
     raise ValueError('该文件格式无法预览。')

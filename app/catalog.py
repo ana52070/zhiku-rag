@@ -84,6 +84,7 @@ class Catalog:
             db.execute('DELETE FROM libraries WHERE id=?', (library_id,))
         for document in documents:
             (self.storage.uploads / (document['id'] + document['suffix'])).unlink(missing_ok=True)
+            self.storage.remove_preview(document['id'])
         return {'deleted': True}
 
     def update_library(self, library_id, name):

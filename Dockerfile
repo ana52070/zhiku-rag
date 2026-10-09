@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     RAG_DATA_DIR=/data
 
 WORKDIR /srv
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng libreoffice-writer fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock \
     && useradd --uid 10001 --create-home rag \

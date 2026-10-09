@@ -1,5 +1,6 @@
 import hmac
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -29,6 +30,8 @@ class AccessControl:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         request = Request(scope)
+        style_nonce = secrets.token_urlsafe(18)
+        scope.setdefault('state', {})['style_nonce'] = style_nonce
         path = scope["path"]
         if request.url.hostname not in self.allowed_hosts:
             response = JSONResponse({"detail": "访问主机未授权，请设置 RAG_ALLOWED_HOSTS。"}, 400)
@@ -68,7 +71,7 @@ class AccessControl:
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
                     (b"referrer-policy", b"same-origin"),
-                    (b"content-security-policy", b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+                    (b"content-security-policy", ("default-src 'self'; script-src 'self'; style-src 'self' 'nonce-" + style_nonce + "'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self'; frame-src blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'").encode()),
                     (b"cache-control", b"no-store"),
                 ])
             await send(message)
@@ -140,7 +143,8 @@ def create_app(data_dir=None, embedder=None):
 
     @application.get("/api/status")
     async def status():
-        return {**service.status(), "admin_auth": bool(os.environ.get("RAG_ADMIN_TOKEN")), "mcp_auth": bool(os.environ.get("RAG_MCP_TOKEN")) or service.keys.configured()}
+        from .ocr import engine_status
+        return {**service.status(), 'ocr': engine_status(), "admin_auth": bool(os.environ.get("RAG_ADMIN_TOKEN")), "mcp_auth": bool(os.environ.get("RAG_MCP_TOKEN")) or service.keys.configured()}
 
     @application.get("/api/config")
     async def config():
@@ -232,6 +236,20 @@ def create_app(data_dir=None, embedder=None):
         import asyncio
         return HTMLResponse(await asyncio.to_thread(render_preview, document, path))
 
+    @application.get('/api/documents/{document_id}/preview-source')
+    async def preview_source(document_id: str):
+        document = service.document(document_id)
+        if document['suffix'] != '.docx':
+            raise BusinessError('该格式不使用 Word 渲染组件。')
+        path = service.storage.uploads / (document_id + document['suffix'])
+        if not path.exists(): raise BusinessError('源文件不存在。', 404)
+        from .office_converter import needs_pdf_preview, word_pdf
+        import asyncio
+        if await asyncio.to_thread(needs_pdf_preview, path):
+            converted = await asyncio.to_thread(word_pdf, path, service.storage.directory, document_id)
+            return FileResponse(converted, media_type='application/pdf', headers={'X-Preview-Mode': 'converted-word-pdf'})
+        return FileResponse(path, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
     @application.post('/api/folders', status_code=201)
     async def create_folder(request: FolderRequest):
         async with service.lock:
@@ -300,9 +318,10 @@ def create_app(data_dir=None, embedder=None):
         application.mount("/static", StaticFiles(directory=static), name="static")
 
     @application.get("/")
-    async def index():
+    async def index(request: Request):
         if (static / "index.html").exists():
-            return FileResponse(static / "index.html")
+            html = (static / 'index.html').read_text(encoding='utf-8')
+            return HTMLResponse(html.replace('name="style-nonce" content=""', 'name="style-nonce" content="' + request.state.style_nonce + '"'))
         return {"message": "后端已启动，管理界面正在建设。"}
 
     return application
