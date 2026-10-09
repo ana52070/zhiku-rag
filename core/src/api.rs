@@ -60,7 +60,18 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
         )
         .route("/api/keys/{id}/revoke", post(revoke_key))
         .route("/api/search", post(search_knowledge))
-        .route("/mcp", post(mcp_endpoint));
+        .route(
+            "/mcp",
+            post(mcp_endpoint)
+                .get(mcp_get_endpoint)
+                .options(mcp_options_endpoint),
+        )
+        .route(
+            "/mcp/",
+            post(mcp_endpoint)
+                .get(mcp_get_endpoint)
+                .options(mcp_options_endpoint),
+        );
 
     let index_file = static_dir.join("index.html");
 
@@ -70,7 +81,7 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
         .fallback(move |uri: axum::http::Uri| {
             let idx = index_file.clone();
             async move {
-                if uri.path().starts_with("/api/") {
+                if uri.path().starts_with("/api/") || uri.path() == "/mcp" || uri.path().starts_with("/mcp/") {
                     return Response::builder()
                         .status(StatusCode::NOT_FOUND)
                         .header(header::CONTENT_TYPE, "application/json")
@@ -738,4 +749,24 @@ fn resolve_auth(
     }
 
     (None, None)
+}
+
+
+async fn mcp_get_endpoint() -> Response {
+    Response::builder()
+        .status(StatusCode::METHOD_NOT_ALLOWED)
+        .header(header::ALLOW, "POST, OPTIONS")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({ "detail": "MCP 接口仅支持 POST JSON-RPC 调用或 OPTIONS 预检。" }).to_string(),
+        ))
+        .unwrap()
+}
+
+async fn mcp_options_endpoint() -> Response {
+    Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .header(header::ALLOW, "GET, POST, OPTIONS")
+        .body(Body::empty())
+        .unwrap()
 }

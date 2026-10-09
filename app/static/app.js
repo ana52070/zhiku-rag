@@ -68,7 +68,7 @@ function renderStatus() {
   $('#model-configured').textContent = status.config.configured ? `当前模型：${status.config.model}` : '尚未配置';
   $('#ocr-engine-details').textContent = status.ocr?.available ? `${status.ocr.engine} ${status.ocr.engine_version || ''} · CPU · ${status.ocr.languages} · 本地运行` : '本地 OCR 未就绪，请检查引擎和语言包。';
   $('#ocr-status').textContent = status.ocr?.available ? '本地中英 OCR 已就绪 · 图片文字标记来源后参与检索' : '本地 OCR 未就绪 · 图片中的文字暂不能参与检索';
-  $('#mcp-url').value = `${location.origin}/mcp/`;
+  $('#mcp-url').value = `${location.origin}/mcp`;
   $('#mcp-auth-description').textContent = status.mcp_auth ? '已启用 MCP 访问保护。请在下方配置中使用 API Key 授权页创建的只读凭证。' : '当前未设置 MCP 令牌，仅适合本机访问。对外提供服务前请设置 RAG_MCP_TOKEN。';
   $('#auth-description').textContent = status.admin_auth ? '管理员令牌保护已开启。MCP 使用独立令牌；对外部署还需设置允许访问的主机名及 HTTPS。' : '当前未设置管理员令牌。默认 Docker 仅发布到本机；内网或公网访问前请设置管理员令牌和 MCP 令牌。';
 }
@@ -434,7 +434,7 @@ $('#preview-dialog').addEventListener('close', () => {
 });
 function renderMcpConfiguration() {
   const key = $('#mcp-key').value.trim() || '<你的只读 API Key>';
-  const server = {url: `${location.origin}/mcp/`, transport: 'streamable-http', headers: {Authorization: `Bearer ${key}`}};
+  const server = {url: `${location.origin}/mcp`, transport: 'streamable-http', headers: {Authorization: `Bearer ${key}`}};
   const openclaw = {mcp: {servers: {'zhiku-rag': server}}};
   const generic = {mcpServers: {'zhiku-rag': {url: server.url, headers: server.headers}}};
   $('#mcp-json').value = JSON.stringify($('#mcp-format').value === 'openclaw' ? openclaw : generic, null, 2);
