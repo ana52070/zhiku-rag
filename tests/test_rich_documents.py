@@ -23,13 +23,15 @@ def image_bytes():
     stream = io.BytesIO(); image.save(stream, 'PNG'); return stream.getvalue()
 
 
-def scanned_pdf():
-    pdf = PdfWriter(); page = pdf.add_blank_page(width=400, height=100)
-    image = Image.open(io.BytesIO(image_bytes())).convert('RGB')
+def scanned_pdf(raw=None):
+    image = Image.open(io.BytesIO(raw or image_bytes())).convert('RGB')
+    width, height = image.size
+    pw, ph = width * 72 / 300, height * 72 / 300
+    pdf = PdfWriter(); page = pdf.add_blank_page(width=pw, height=ph)
     obj = DecodedStreamObject(); obj.set_data(image.tobytes())
-    obj.update({NameObject('/Type'):NameObject('/XObject'), NameObject('/Subtype'):NameObject('/Image'), NameObject('/Width'):NumberObject(400), NameObject('/Height'):NumberObject(100), NameObject('/ColorSpace'):NameObject('/DeviceRGB'), NameObject('/BitsPerComponent'):NumberObject(8)})
+    obj.update({NameObject('/Type'):NameObject('/XObject'), NameObject('/Subtype'):NameObject('/Image'), NameObject('/Width'):NumberObject(width), NameObject('/Height'):NumberObject(height), NameObject('/ColorSpace'):NameObject('/DeviceRGB'), NameObject('/BitsPerComponent'):NumberObject(8)})
     page[NameObject('/Resources')] = DictionaryObject({NameObject('/XObject'):DictionaryObject({NameObject('/Im1'):pdf._add_object(obj)})})
-    stream = DecodedStreamObject(); stream.set_data(b'q 400 0 0 100 0 0 cm /Im1 Do Q'); page[NameObject('/Contents')] = stream
+    stream = DecodedStreamObject(); stream.set_data(f'q {pw} 0 0 {ph} 0 0 cm /Im1 Do Q'.encode()); page[NameObject('/Contents')] = pdf._add_object(stream)
     output = io.BytesIO(); pdf.write(output); return output.getvalue()
 
 
