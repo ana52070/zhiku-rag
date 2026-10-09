@@ -8,6 +8,7 @@ pub mod client;
 pub mod crypto;
 pub mod keys;
 pub mod mcp;
+pub mod operations;
 pub mod service;
 pub mod storage;
 pub mod vector;

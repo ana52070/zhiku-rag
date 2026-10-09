@@ -15,6 +15,7 @@ use tower_http::services::ServeDir;
 
 use crate::catalog::Location;
 use crate::mcp::{handle_mcp_request, JsonRpcRequest};
+use crate::operations::OperationItem;
 use crate::service::{KnowledgeService, ModelConfig};
 
 pub type AppState = Arc<KnowledgeService>;
@@ -33,6 +34,8 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
         .route("/api/documents/batch/move", post(batch_move_documents))
         .route("/api/documents/batch/delete", post(batch_delete_documents))
         .route("/api/documents/reindex", post(reindex_all_documents))
+        .route("/api/reindex", post(reindex_all_documents))
+        .route("/api/operations/{id}", get(get_operation))
         .route(
             "/api/documents/{id}",
             get(get_document).delete(delete_document),
@@ -64,9 +67,16 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
     Router::new()
         .merge(api_routes)
         .nest_service("/static", ServeDir::new(&static_dir))
-        .fallback(move || {
+        .fallback(move |uri: axum::http::Uri| {
             let idx = index_file.clone();
             async move {
+                if uri.path().starts_with("/api/") {
+                    return Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(json!({ "detail": "API 接口不存在。" }).to_string()))
+                        .unwrap();
+                }
                 if let Ok(content) = tokio::fs::read(&idx).await {
                     Response::builder()
                         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -167,6 +177,7 @@ async fn list_documents(State(svc): State<AppState>) -> Response {
 
 async fn upload_document(
     State(svc): State<AppState>,
+    Query(query): Query<OpQuery>,
     mut multipart: Multipart,
 ) -> Response {
     let mut filename = "document.bin".to_string();
@@ -203,15 +214,51 @@ async fn upload_document(
         None => return err_response(400, "未上传文件数据。"),
     };
 
-    match svc
+    if let Some(ref op_id) = query.operation_id {
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "upload".to_string(),
+            state: "running".to_string(),
+            stage: "parsing".to_string(),
+            filename: filename.clone(),
+            total: 1,
+            completed: 0,
+            failed: 0,
+            current: 0,
+            stage_total: None,
+            error: "".to_string(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    let res = svc
         .upload(
             &filename,
             &data,
             library_id.as_deref(),
             folder_id.as_deref(),
         )
-        .await
-    {
+        .await;
+
+    if let Some(ref op_id) = query.operation_id {
+        let is_ok = res.is_ok();
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "upload".to_string(),
+            state: if is_ok { "complete".to_string() } else { "failed".to_string() },
+            stage: "done".to_string(),
+            filename,
+            total: 1,
+            completed: if is_ok { 1 } else { 0 },
+            failed: if is_ok { 0 } else { 1 },
+            current: 0,
+            stage_total: None,
+            error: res.as_ref().err().map(|e| e.1.clone()).unwrap_or_default(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    match res {
         Ok(doc) => Json(doc).into_response(),
         Err((c, m)) => err_response(c, m),
     }
@@ -231,18 +278,118 @@ async fn delete_document(State(svc): State<AppState>, Path(id): Path<String>) ->
     }
 }
 
+#[derive(Deserialize)]
+struct OpQuery {
+    operation_id: Option<String>,
+}
+
+async fn get_operation(State(svc): State<AppState>, Path(id): Path<String>) -> Response {
+    if let Some(op) = svc.operations.get(&id) {
+        Json(op).into_response()
+    } else {
+        err_response(404, "操作进度不存在或已过期。")
+    }
+}
+
 async fn reindex_single_document(
     State(svc): State<AppState>,
     Path(id): Path<String>,
+    Query(query): Query<OpQuery>,
 ) -> Response {
-    match svc.reindex(Some(&id)).await {
+    let doc = match svc.get_document(&id) {
+        Ok(d) => d,
+        Err((c, m)) => return err_response(c, m),
+    };
+    let filename = doc["filename"].as_str().unwrap_or("").to_string();
+
+    if let Some(ref op_id) = query.operation_id {
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "reindex".to_string(),
+            state: "running".to_string(),
+            stage: "embedding".to_string(),
+            filename: filename.clone(),
+            total: 1,
+            completed: 0,
+            failed: 0,
+            current: 0,
+            stage_total: None,
+            error: "".to_string(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    let res = svc.reindex(Some(&id)).await;
+
+    if let Some(ref op_id) = query.operation_id {
+        let is_ok = res.is_ok();
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "reindex".to_string(),
+            state: if is_ok { "complete".to_string() } else { "failed".to_string() },
+            stage: "done".to_string(),
+            filename,
+            total: 1,
+            completed: if is_ok { 1 } else { 0 },
+            failed: if is_ok { 0 } else { 1 },
+            current: 0,
+            stage_total: None,
+            error: res.as_ref().err().map(|e| e.1.clone()).unwrap_or_default(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    match res {
         Ok(v) => Json(v).into_response(),
         Err((c, m)) => err_response(c, m),
     }
 }
 
-async fn reindex_all_documents(State(svc): State<AppState>) -> Response {
-    match svc.reindex(None).await {
+async fn reindex_all_documents(
+    State(svc): State<AppState>,
+    Query(query): Query<OpQuery>,
+) -> Response {
+    let docs = svc.list_documents(false, None).unwrap_or_default();
+    let total = docs.len() as i64;
+
+    if let Some(ref op_id) = query.operation_id {
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "reindex".to_string(),
+            state: "running".to_string(),
+            stage: "embedding".to_string(),
+            filename: "".to_string(),
+            total,
+            completed: 0,
+            failed: 0,
+            current: 0,
+            stage_total: None,
+            error: "".to_string(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    let res = svc.reindex(None).await;
+
+    if let Some(ref op_id) = query.operation_id {
+        let is_ok = res.is_ok();
+        svc.operations.update(OperationItem {
+            id: op_id.clone(),
+            kind: "reindex".to_string(),
+            state: if is_ok { "complete".to_string() } else { "failed".to_string() },
+            stage: "done".to_string(),
+            filename: "".to_string(),
+            total,
+            completed: if is_ok { total } else { 0 },
+            failed: if is_ok { 0 } else { total },
+            current: 0,
+            stage_total: None,
+            error: res.as_ref().err().map(|e| e.1.clone()).unwrap_or_default(),
+            updated: chrono::Utc::now().timestamp() as f64,
+        });
+    }
+
+    match res {
         Ok(v) => Json(v).into_response(),
         Err((c, m)) => err_response(c, m),
     }

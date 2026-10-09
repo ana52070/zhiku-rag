@@ -5,16 +5,18 @@ function operationId() {
 }
 
 function renderOperation(progress, context) {
-  $('#operation-progress').hidden = false;
+  const container = $('#operation-progress');
+  container.hidden = false;
+  container.dataset.opId = progress.id || context.id || '';
   $('#task-title').textContent = context.title;
-  const done = context.batch ? context.index + progress.completed : progress.completed;
-  const total = context.batch ? context.total : progress.total;
+  const done = context.batch ? (context.index + (progress.completed ?? 0)) : (progress.completed ?? context.total ?? 1);
+  const total = context.batch ? context.total : (progress.total ?? context.total ?? 1);
   const ended = progress.state !== 'running';
   $('#task-overall').value = total ? done / total * 100 : 0;
   $('#task-summary').textContent = `已处理 ${done}/${total || '?'} 份${ended ? progress.state === 'failed' ? ' · 需检查' : ' · 完成' : ' · 处理中'}`;
   $('#task-file').textContent = progress.filename || context.filename || '';
   const names = {queued: '等待处理', transfer: '传输文件', parsing: '解析文档', ocr: '识别图片文字', embedding: '生成向量', saving: '保存索引', done: progress.state === 'failed' ? '部分处理失败，请查看文件列表' : '处理完成'};
-  let label = names[progress.stage] || '处理中';
+  let label = names[progress.stage] || (ended ? (progress.state === 'failed' ? '处理失败' : '处理完成') : '处理中');
   if (progress.stage === 'ocr') label += ` · 已处理 ${progress.current} 张图片`;
   else if (progress.stage_total) label += ` · ${progress.current}/${progress.stage_total}${progress.stage === 'embedding' ? ' 个片段' : ''}`;
   $('#task-stage-label').textContent = progress.error || label;
@@ -22,7 +24,7 @@ function renderOperation(progress, context) {
   if (progress.stage_total) $('#task-stage').value = progress.current;
   else if (ended) $('#task-stage').value = 1;
   else $('#task-stage').removeAttribute('value');
-  $('#operation-progress').classList.toggle('has-error', progress.state === 'failed');
+  container.classList.toggle('has-error', progress.state === 'failed');
   $('#task-elapsed').textContent = `已用时 ${Math.floor((Date.now() - context.started) / 1000)} 秒`;
 }
 
@@ -86,6 +88,13 @@ async function trackedOperation(path, options, context) {
       progress = {...progress, state: result.status === 'failed' || result.failed_count ? 'failed' : 'complete', stage: 'done', completed: context.batch ? 1 : context.total || progress.total};
     }
     renderOperation(progress, context);
+    if (progress.state === 'complete' || progress.state === 'done') {
+      setTimeout(() => {
+        if ($('#operation-progress').dataset.opId === id) {
+          $('#operation-progress').hidden = true;
+        }
+      }, 1800);
+    }
     return result;
   } catch (error) {
     stopped = true; clearTimeout(timer);
@@ -93,3 +102,12 @@ async function trackedOperation(path, options, context) {
     throw error;
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('#close-operation')?.addEventListener('click', () => {
+    $('#operation-progress').hidden = true;
+  });
+});
+$('#close-operation')?.addEventListener('click', () => {
+  $('#operation-progress').hidden = true;
+});

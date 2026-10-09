@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::catalog::{Catalog, Location};
+use crate::operations::Operations;
 use crate::client::{EmbeddingClient, WorkerClient};
 use crate::crypto::sha256_hex;
 use crate::keys::AccessKeys;
@@ -68,6 +69,7 @@ pub struct KnowledgeService {
     pub keys: AccessKeys,
     pub worker: WorkerClient,
     pub embedder: EmbeddingClient,
+    pub operations: Operations,
     lock: Arc<RwLock<()>>,
 }
 
@@ -77,6 +79,7 @@ impl KnowledgeService {
         let keys = AccessKeys::new(storage.clone(), catalog.clone());
         let worker = WorkerClient::new(worker_url);
         let embedder = EmbeddingClient::new();
+        let operations = Operations::new();
 
         Self {
             storage,
@@ -84,6 +87,7 @@ impl KnowledgeService {
             keys,
             worker,
             embedder,
+            operations,
             lock: Arc::new(RwLock::new(())),
         }
     }
