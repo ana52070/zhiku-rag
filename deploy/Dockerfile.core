@@ -1,33 +1,6 @@
 # ==========================================
-# 阶段 1: 编译 Rust 主控二进制 (rag-core)
-# ==========================================
-FROM rust:1.85-slim AS builder
-
-WORKDIR /usr/src/rag-core
-
-# 替换 Debian 官方源为国内阿里云镜像源加速
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true; \
-    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
-
-# 安装基础构建依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# 利用国内 crates.io 镜像加速
-RUN mkdir -p /root/.cargo && \
-    echo '[source.crates-io]\nreplace-with = "ustc"\n\n[source.ustc]\nregistry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"' > /root/.cargo/config.toml
-
-# 复制 Cargo 配置与源码并编译
-COPY core/Cargo.toml core/Cargo.lock* ./
-COPY core/src ./src
-RUN cargo build --release
-
-# ==========================================
-# 阶段 2: 极轻量运行时镜像
+# 极轻量运行时镜像 (使用预编译免构建二进制)
+# 彻底消除在容器内漫长拉取 crates 与编译 Rust 的等待
 # ==========================================
 FROM debian:bookworm-slim
 
@@ -49,10 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制二进制产物及前端资源
-COPY --from=builder /usr/src/rag-core/target/release/rag-core /usr/local/bin/rag-core
-COPY app/static /app/app/static
+# 直接拷贝预编译完成的 Linux x86_64 rag-core 二进制
+COPY deploy/bin/rag-core /usr/local/bin/rag-core
+RUN chmod +x /usr/local/bin/rag-core
 
+# 拷贝静态资源与创建数据目录
+COPY app/static /app/app/static
 RUN mkdir -p /app/data
 
 EXPOSE 8010
