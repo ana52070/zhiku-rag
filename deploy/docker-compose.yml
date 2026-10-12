@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # 1. Python 文档解析与 OCR 微服务
+  rag-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    container_name: zhiku-rag-worker
+    restart: unless-stopped
+    networks:
+      - zhiku-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # 2. Rust 主控核心 (Axum + SQLite + SIMD 向量检索 + MCP 服务)
+  rag-core:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.core
+    container_name: zhiku-rag-core
+    restart: unless-stopped
+    depends_on:
+      rag-worker:
+        condition: service_healthy
+    ports:
+      - "${RAG_PORT:-8010}:8010"
+    environment:
+      - RAG_DATA_DIR=/app/data
+      - RAG_WORKER_URL=http://rag-worker:8002
+      - RAG_PORT=8010
+      - RAG_HOST=0.0.0.0
+      - RAG_ADMIN_TOKEN=${RAG_ADMIN_TOKEN:-h6_4009cuLn5FJgMXtHXUpz7q3XPm-GNzw4mwdUwqz8}
+      - RAG_PUBLIC_URL=${RAG_PUBLIC_URL:-http://localhost:8010}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - zhiku-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8010/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # 3. OpenClaw 智能体网关 (飞书通道连接与模型调用)
+  openclaw-gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.openclaw
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    depends_on:
+      rag-core:
+        condition: service_healthy
+    ports:
+      - "${OPENCLAW_PORT:-18789}:18789"
+    volumes:
+      - ./openclaw:/root/.openclaw
+    networks:
+      - zhiku-net
+
+networks:
+  zhiku-net:
+    driver: bridge

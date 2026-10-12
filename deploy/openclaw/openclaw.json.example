@@ -1,0 +1,83 @@
+{
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "port": 18789,
+    "auth": {
+      "mode": "token",
+      "token": "openclaw-token-secret-change-me"
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom": {
+        "baseUrl": "http://内网或公网LLM地址:端口/v1",
+        "apiKey": "sk-your-model-api-key",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "deepseek-flash",
+            "name": "deepseek-flash",
+            "contextWindow": 64000,
+            "maxTokens": 4096,
+            "input": [
+              "text"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "custom/deepseek-flash"
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "feishu": {
+        "enabled": true
+      }
+    }
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "domain": "feishu",
+      "connectionMode": "websocket",
+      "dmPolicy": "open",
+      "groupPolicy": "open",
+      "allowFrom": [
+        "*"
+      ],
+      "groupAllowFrom": [
+        "*"
+      ],
+      "accounts": {
+        "default": {
+          "enabled": true,
+          "appId": "cli_你的飞书AppID",
+          "appSecret": "你的飞书AppSecret",
+          "dmPolicy": "open",
+          "allowFrom": [
+            "*"
+          ]
+        }
+      }
+    }
+  },
+  "mcp": {
+    "servers": {
+      "zhiku-rag": {
+        "url": "http://rag-core:8010/mcp",
+        "transport": "streamable-http",
+        "headers": {
+          "Authorization": "Bearer zk_9hPY7FIVpwkmLDuKLqhufqPfMbca5HA5zVIGx-hKS70"
+        }
+      }
+    }
+  }
+}

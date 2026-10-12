@@ -1,0 +1,20 @@
+# ==========================================
+# OpenClaw 智能体与通道网关镜像
+# ==========================================
+FROM node:22-slim
+
+ENV OPENCLAW_HOME=/root/.openclaw
+
+WORKDIR /app
+
+# 安装基础系统依赖及 OpenClaw CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g openclaw@latest --registry=https://registry.npmmirror.com
+
+EXPOSE 18789
+
+# 运行 OpenClaw 网关
+CMD ["openclaw", "gateway", "run", "--port", "18789", "--bind", "0.0.0.0"]

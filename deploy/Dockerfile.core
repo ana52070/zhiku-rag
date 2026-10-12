@@ -1,0 +1,51 @@
+# ==========================================
+# 阶段 1: 编译 Rust 主控二进制 (rag-core)
+# ==========================================
+FROM rust:1.85-slim AS builder
+
+WORKDIR /usr/src/rag-core
+
+# 安装基础构建依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 利用国内 crates.io 镜像加速
+RUN mkdir -p /root/.cargo && \
+    echo '[source.crates-io]\nreplace-with = "ustc"\n\n[source.ustc]\nregistry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"' > /root/.cargo/config.toml
+
+# 复制 Cargo 配置与源码并编译
+COPY core/Cargo.toml core/Cargo.lock* ./
+COPY core/src ./src
+RUN cargo build --release
+
+# ==========================================
+# 阶段 2: 极轻量运行时镜像
+# ==========================================
+FROM debian:bookworm-slim
+
+ENV RAG_DATA_DIR=/app/data \
+    RAG_WORKER_URL=http://rag-worker:8002 \
+    RAG_PORT=8010 \
+    RAG_HOST=0.0.0.0
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制二进制产物及前端资源
+COPY --from=builder /usr/src/rag-core/target/release/rag-core /usr/local/bin/rag-core
+COPY app/static /app/app/static
+
+RUN mkdir -p /app/data
+
+EXPOSE 8010
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://127.0.0.1:8010/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/rag-core"]
