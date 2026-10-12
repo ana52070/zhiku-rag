@@ -1,6 +1,20 @@
 version: '3.8'
 
 services:
+  # 0. 本地 Embedding 推理引擎 (Ollama)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: zhiku-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    networks:
+      - zhiku-net
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+
   # 1. Python 文档解析与 OCR 微服务
   rag-worker:
     build:
