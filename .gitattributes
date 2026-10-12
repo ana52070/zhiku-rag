@@ -1,0 +1,5 @@
+# 让 GitHub Linguist 准确统计核心代码语言
+scripts/* linguist-vendored
+tests/* linguist-vendored
+docs/* linguist-documentation
+core/Cargo.lock linguist-generated
