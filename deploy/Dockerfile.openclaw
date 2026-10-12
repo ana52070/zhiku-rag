@@ -22,5 +22,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 EXPOSE 18789
 
-# 运行 OpenClaw 网关
-CMD ["openclaw", "gateway", "run", "--port", "18789", "--bind", "0.0.0.0"]
+# 运行 OpenClaw 网关（--bind 参数使用 lan 监听局域网/容器网络）
+CMD ["openclaw", "gateway", "run", "--port", "18789", "--bind", "lan"]

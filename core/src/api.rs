@@ -5,7 +5,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -26,9 +26,14 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
     let api_routes = Router::new()
         .route("/health", get(health))
         .route("/api/status", get(get_status))
+        .route("/api/service", put(update_service_state).post(update_service_state))
         .route("/api/status/enable", post(enable_service))
         .route("/api/status/disable", post(disable_service))
-        .route("/api/config", get(get_config).post(save_config))
+        .route(
+            "/api/config",
+            get(get_config).post(save_config).put(save_config),
+        )
+        .route("/api/config/test", post(test_config))
         .route("/api/ocr/status", get(get_ocr_status))
         .route("/api/documents", get(list_documents).post(upload_document))
         .route("/api/documents/batch/move", post(batch_move_documents))
@@ -38,26 +43,30 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
         .route("/api/operations/{id}", get(get_operation))
         .route(
             "/api/documents/{id}",
-            get(get_document).delete(delete_document),
+            get(get_document).delete(delete_document).patch(toggle_document),
         )
         .route("/api/documents/{id}/reindex", post(reindex_single_document))
         .route("/api/documents/{id}/toggle", post(toggle_document))
         .route("/api/documents/{id}/move", post(move_document))
+        .route("/api/documents/{id}/location", patch(move_document).post(move_document))
         .route("/api/documents/{id}/download", get(download_document))
+        .route("/api/documents/{id}/content", get(get_document_content))
+        .route("/api/documents/{id}/admin-content", get(get_document_content))
         .route("/api/documents/{id}/preview", get(preview_document))
         .route("/api/documents/{id}/preview-source", get(preview_source_document))
         .route("/api/libraries", get(list_libraries).post(create_library))
         .route(
             "/api/libraries/{id}",
-            put(update_library).delete(delete_library),
+            put(update_library).patch(update_library).delete(delete_library),
         )
         .route("/api/folders", get(list_folders).post(create_folder))
         .route("/api/folders/{id}", delete(delete_folder))
         .route("/api/keys", get(list_keys).post(create_key))
         .route(
             "/api/keys/{id}",
-            put(update_key).delete(delete_key),
+            put(update_key).patch(update_key).delete(revoke_key),
         )
+        .route("/api/keys/{id}/permanent", delete(delete_key))
         .route("/api/keys/{id}/revoke", post(revoke_key))
         .route("/api/search", post(search_knowledge))
         .route(
@@ -167,6 +176,49 @@ async fn get_config(State(svc): State<AppState>) -> Response {
 
 async fn save_config(State(svc): State<AppState>, Json(payload): Json<ModelConfig>) -> Response {
     match svc.save_config(payload).await {
+        Ok(v) => Json(v).into_response(),
+        Err((c, m)) => err_response(c, m),
+    }
+}
+
+async fn test_config(State(svc): State<AppState>, Json(payload): Json<ModelConfig>) -> Response {
+    match svc.test_config(payload).await {
+        Ok(dim) => Json(json!({ "dimension": dim })).into_response(),
+        Err((c, m)) => err_response(c, m),
+    }
+}
+
+#[derive(Deserialize)]
+struct ServicePayload {
+    enabled: bool,
+}
+
+async fn update_service_state(State(svc): State<AppState>, Json(payload): Json<ServicePayload>) -> Response {
+    match svc.set_enabled(payload.enabled) {
+        Ok(v) => Json(v).into_response(),
+        Err((c, m)) => err_response(c, m),
+    }
+}
+
+#[derive(Deserialize)]
+struct ContentQuery {
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_content_limit")]
+    limit: usize,
+}
+
+fn default_content_limit() -> usize {
+    8000
+}
+
+async fn get_document_content(
+    State(svc): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ContentQuery>,
+) -> Response {
+    let limit = if query.limit == 0 { 8000 } else { query.limit.min(8000) };
+    match svc.content(&id, query.offset, limit) {
         Ok(v) => Json(v).into_response(),
         Err((c, m)) => err_response(c, m),
     }

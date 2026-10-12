@@ -186,6 +186,38 @@ impl KnowledgeService {
         Ok(self.public_config())
     }
 
+    pub async fn test_config(&self, req: ModelConfig) -> Result<usize, (u16, String)> {
+        let old = self.config();
+        let base_url = req.base_url.trim().trim_end_matches('/').to_string();
+        if base_url.is_empty() {
+            return Err((400, "接口地址不能为空。".to_string()));
+        }
+        let model = req.model.trim().to_string();
+        if model.is_empty() {
+            return Err((400, "模型名称不能为空。".to_string()));
+        }
+        let api_key = if req.clear_api_key {
+            "".to_string()
+        } else if !req.api_key.trim().is_empty() {
+            req.api_key.trim().to_string()
+        } else {
+            old.api_key
+        };
+
+        let test_texts = vec!["用于测试模型连接的中文句子。".to_string()];
+        let vectors = self
+            .embedder
+            .embed(&base_url, &model, &api_key, &test_texts)
+            .await
+            .map_err(|e| (400, format!("模型接口测试失败：{}", e)))?;
+
+        if let Some(first) = vectors.first() {
+            Ok(first.len())
+        } else {
+            Err((400, "模型接口未返回向量数据。".to_string()))
+        }
+    }
+
     pub fn fingerprint(&self) -> String {
         let cfg = self.config();
         let raw = format!("{}::{}", cfg.base_url, cfg.model);
