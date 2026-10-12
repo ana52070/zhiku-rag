@@ -500,6 +500,7 @@ impl KnowledgeService {
         let doc = self.get_document(doc_id).map_err(|(_, e)| e)?;
         let text = doc["text"].as_str().unwrap_or("");
         let pieces = split_text(text);
+        let pieces_count = pieces.len();
 
         if pieces.is_empty() {
             self.storage.with_conn(|conn| {
@@ -547,7 +548,7 @@ impl KnowledgeService {
 
             tx.execute(
                 "UPDATE documents SET status = 'ready', error = '', fingerprint = ?, chunk_count = ?, dimension = ? WHERE id = ?",
-                params![fp, doc["chunk_count"].as_i64().unwrap_or(0), dimension as i64, doc_id],
+                params![fp, pieces_count as i64, dimension as i64, doc_id],
             )?;
 
             tx.commit()?;
