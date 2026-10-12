@@ -13,12 +13,12 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
 
-# 安装基础系统依赖及 OpenClaw CLI
+# 安装基础系统依赖及 OpenClaw CLI（锁定经过验证的稳定版本 2026.9.2，完美兼容 Node 22 环境）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g openclaw@latest --registry=https://registry.npmmirror.com
+    && npm install -g openclaw@2026.9.2 --registry=https://registry.npmmirror.com
 
 EXPOSE 18789
 
