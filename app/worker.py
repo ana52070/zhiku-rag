@@ -59,7 +59,7 @@ async def preview(
 
     content = await file.read()
     try:
-        html = render_preview(doc, content)
+        html = render_preview(doc, io.BytesIO(content))
         return HTMLResponse(content=html)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

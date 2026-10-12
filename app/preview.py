@@ -3,6 +3,7 @@ import csv
 import io
 from html import escape
 from html.parser import HTMLParser
+from pathlib import Path
 import markdown
 import openpyxl
 from docx import Document
@@ -35,6 +36,9 @@ def table_html(rows):
 
 
 def render_preview(document, path):
+    if isinstance(path, (bytes, bytearray)):
+        path = io.BytesIO(bytes(path))
+
     suffix = document['suffix']
     if suffix == '.txt':
         return '<pre>' + escape(document['text']) + '</pre>'
@@ -43,7 +47,14 @@ def render_preview(document, path):
         parser.feed(markdown.markdown(document['text'], extensions=['tables', 'fenced_code']))
         return ''.join(parser.parts)
     if suffix == '.csv':
-        raw = path.read_bytes()
+        if isinstance(path, io.BytesIO):
+            raw = path.getvalue()
+        elif hasattr(path, 'read_bytes'):
+            raw = path.read_bytes()
+        elif isinstance(path, (str, Path)):
+            raw = Path(path).read_bytes()
+        else:
+            raw = path.read()
         for encoding in ('utf-8-sig', 'gb18030', 'gbk'):
             try:
                 text = raw.decode(encoding)

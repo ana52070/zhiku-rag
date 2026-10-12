@@ -65,6 +65,8 @@ def cell_value(cell):
 
 
 def spreadsheet_html(path):
+    if isinstance(path, (bytes, bytearray)):
+        path = io.BytesIO(bytes(path))
     book=load_workbook(path,data_only=True)
     try:
         tabs=[]; panels=[]
@@ -169,12 +171,15 @@ def _shape_svg(shape):
 
 
 def presentation_html(path):
-    presentation=Presentation(str(path))
+    if isinstance(path, (bytes, bytearray)):
+        path = io.BytesIO(bytes(path))
+    file_or_path = path if hasattr(path, 'read') else str(path)
+    presentation=Presentation(file_or_path)
     parts=['<div class="presentation-view">']
     for number,slide in enumerate(presentation.slides,1):
         background='#ffffff'
         try:
             if slide.background.fill.type is not None: background=_ppt_color(slide.background.fill.fore_color,background)
         except (AttributeError,TypeError,ValueError): pass
-        parts.append(f'<section class="slide-page"><h3>第 {number} 页</h3><svg role="img" aria-label="第 {number} 页幻灯片" viewBox="0 0 {presentation.slide_width} {presentation.slide_height}"><rect width="100%" height="100%" fill="{background}"/>'+''.join(_shape_svg(shape) for shape in slide.shapes)+'</svg></section>')
+        parts.append(f'<section class="slide-page"><h3>第 {number} 页</h3><svg role=\"img\" aria-label=\"第 {number} 页幻灯片\" viewBox=\"0 0 {presentation.slide_width} {presentation.slide_height}\"><rect width=\"100%\" height=\"100%\" fill=\"{background}\"/>'+''.join(_shape_svg(shape) for shape in slide.shapes)+'</svg></section>')
     return ''.join(parts)+'</div>'
