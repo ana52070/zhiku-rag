@@ -7,6 +7,12 @@ ENV OPENCLAW_HOME=/root/.openclaw
 
 WORKDIR /app
 
+# 替换 Debian 官方源为国内阿里云镜像源加速
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true; \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
+
 # 安装基础系统依赖及 OpenClaw CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
