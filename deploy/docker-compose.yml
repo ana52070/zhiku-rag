@@ -1,20 +1,6 @@
 version: '3.8'
 
 services:
-  # 0. 本地 Embedding 推理引擎 (Ollama)
-  ollama:
-    image: ollama/ollama:latest
-    container_name: zhiku-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./ollama:/root/.ollama
-    networks:
-      - zhiku-net
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-
   # 1. Python 文档解析与 OCR 微服务
   rag-worker:
     build:
@@ -42,6 +28,8 @@ services:
     depends_on:
       rag-worker:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${RAG_PORT:-8010}:8010"
     environment:
@@ -72,6 +60,8 @@ services:
     depends_on:
       rag-core:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${OPENCLAW_PORT:-18789}:18789"
     volumes:
