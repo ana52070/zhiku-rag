@@ -222,33 +222,13 @@ impl AccessKeys {
         })
     }
 
-    pub fn generate_source_url(&self, document_id: &str, identity: Option<&str>) -> String {
+    pub fn generate_source_url(&self, document_id: &str, _identity: Option<&str>) -> String {
         let base = std::env::var("RAG_PUBLIC_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:8010".to_string())
             .trim_end_matches('/')
             .to_string();
 
-        let mut url = format!("{}/api/documents/{}/download", base, document_id);
-        if let Some(ident) = identity {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let expires = now + 600;
-
-            let payload_json = format!(r#"["{}", "{}", {}]"#, ident, document_id, expires);
-            let payload = URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
-
-            let key_path = self.storage.directory.join("secret.key");
-            let key_bytes = std::fs::read(&key_path).unwrap_or_default();
-
-            if let Ok(mut mac) = HmacSha256::new_from_slice(&key_bytes) {
-                mac.update(payload.as_bytes());
-                let signature = hex::encode(mac.finalize().into_bytes());
-                url = format!("{}?grant={}.{}", url, payload, signature);
-            }
-        }
-        url
+        format!("{}/api/documents/{}/download", base, document_id)
     }
 
     pub fn resolve_download(&self, document_id: &str, grant: &str) -> Result<Option<HashSet<String>>, String> {

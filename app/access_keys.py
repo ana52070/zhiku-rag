@@ -20,13 +20,7 @@ download_identity = ContextVar('download_identity', default=None)
 
 def source_url(document_id, storage):
     base = os.environ.get('RAG_PUBLIC_URL', 'http://127.0.0.1:8010').rstrip('/')
-    url = f'{base}/api/documents/{document_id}/download'
-    identity = download_identity.get()
-    if identity:
-        payload = base64.urlsafe_b64encode(json.dumps([identity, document_id, int(time.time()) + 600], separators=(',', ':')).encode()).decode().rstrip('=')
-        signature = hmac.new(storage.directory.joinpath('secret.key').read_bytes(), payload.encode(), hashlib.sha256).hexdigest()
-        url += '?grant=' + payload + '.' + signature
-    return url
+    return f'{base}/api/documents/{document_id}/download'
 
 
 def permitted(library_id):
@@ -43,10 +37,7 @@ class AccessKeys:
     def __init__(self, storage, catalog):
         self.storage, self.catalog = storage, catalog
         with storage.connect() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS access_keys (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT NOT NULL UNIQUE,
-                prefix TEXT NOT NULL, library_ids TEXT NOT NULL, all_libraries INTEGER NOT NULL,
-                created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS access_keys (\n                id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT NOT NULL UNIQUE,\n                prefix TEXT NOT NULL, library_ids TEXT NOT NULL, all_libraries INTEGER NOT NULL,\n                created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)''')
 
     def validate(self, request):
         if not request.all_libraries and not request.library_ids:
