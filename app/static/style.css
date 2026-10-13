@@ -16,3 +16,17 @@
 .file-controls a{text-decoration:none}.result-links{margin-top:.5rem;display:flex;gap:.75rem}
 
 .operation-progress{background:#fff;border:1px solid #bdd4ef;border-radius:12px;padding:20px 24px;margin-bottom:24px;box-shadow:0 3px 16px #2563b90a}.operation-progress.has-error{border-color:#ddb0b7}.task-heading{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.task-heading span{font-size:12px;color:var(--muted)}#task-summary{color:var(--ink);margin-top:6px}#task-file{overflow-wrap:anywhere;margin:10px 0 4px;font-weight:600;color:var(--ink)}.operation-progress progress{display:block;width:100%;height:9px;border:0;border-radius:8px;margin-top:8px;accent-color:var(--blue)}.operation-progress progress::-webkit-progress-bar{background:#e8eff8;border-radius:8px}.operation-progress progress::-webkit-progress-value{background:var(--blue);border-radius:8px}.operation-progress progress:indeterminate{background:linear-gradient(90deg,#e8eff8 0%,#87b2e7 50%,#e8eff8 100%);background-size:200% 100%;animation:task-wait 1.6s linear infinite}.operation-progress progress:indeterminate::-webkit-progress-bar{background:transparent}.has-error #task-stage-label{color:var(--red)}.ocr-explainer{margin-top:12px;font-size:12px;color:var(--muted)}.ocr-explainer summary{cursor:pointer;color:var(--blue)}.ocr-explainer p{margin-top:8px}@keyframes task-wait{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.operation-progress progress:indeterminate{animation:none}}@media(max-width:600px){.operation-progress{padding:16px}}
+/* 目录同步：复用工作台样式，表单在窄屏自动改为单列。 */
+.sync-form { margin-top: 24px; max-width: none; }
+.sync-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
+.sync-grid label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sync-card { display: flex; justify-content: space-between; gap: 24px; padding: 22px; border: 1px solid var(--border, #e2e5eb); border-radius: 12px; background: white; margin-bottom: 12px; }
+.sync-card > div { min-width: 0; }
+.sync-card p { font-size: 13px; line-height: 1.7; color: #687386; overflow-wrap: anywhere; }
+.sync-source { font-family: monospace; }
+.sync-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; max-width: 330px; }
+.sync-weekday-options { display: flex; flex-wrap: wrap; gap: 16px; }
+.sync-weekday-options label { display: flex; align-items: center; gap: 6px; }
+#sync-weekdays { border: 1px solid #e2e5eb; border-radius: 8px; padding: 14px; margin-top: 20px; }
+#sync-history { margin-top: 28px; }
+@media (max-width: 700px) { .sync-grid { grid-template-columns: minmax(0, 1fr); } .sync-card { flex-direction: column; gap: 12px; padding: 16px; } .sync-actions { justify-content: flex-start; max-width: none; } .sync-form .form-actions { flex-wrap: wrap; } }

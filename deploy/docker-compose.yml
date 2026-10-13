@@ -3,6 +3,8 @@ version: '3.8'
 services:
   # 1. Python 文档解析与 OCR 微服务
   rag-worker:
+    environment:
+      - RAG_WORKER_TOKEN=${RAG_WORKER_TOKEN:?请设置内部 Worker 令牌}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.worker
@@ -35,9 +37,10 @@ services:
     environment:
       - RAG_DATA_DIR=/app/data
       - RAG_WORKER_URL=http://rag-worker:8002
+      - RAG_WORKER_TOKEN=${RAG_WORKER_TOKEN:?请设置内部 Worker 令牌}
       - RAG_PORT=8010
       - RAG_HOST=0.0.0.0
-      - RAG_ADMIN_TOKEN=${RAG_ADMIN_TOKEN:-h6_4009cuLn5FJgMXtHXUpz7q3XPm-GNzw4mwdUwqz8}
+      - RAG_ADMIN_TOKEN=${RAG_ADMIN_TOKEN:?请设置管理员令牌}
       - RAG_PUBLIC_URL=${RAG_PUBLIC_URL:-http://localhost:8010}
     volumes:
       - ./data:/app/data

@@ -6,7 +6,7 @@
 
 **架构：** Rust 管理任务、时间、文件映射及原子索引发布。Python Worker 作为 SMB 客户端只读访问远端文件。
 
-**技术栈：** Axum、SQLite、Tokio、chrono-tz、cron、Python smbprotocol/smbclient、现有 HTML/JS。
+**技术栈：** Axum、SQLite、Tokio、chrono-tz、croner、Python smbprotocol/smbclient、现有 HTML/JS。
 
 **规格：** `docs/superpowers/specs/2026-10-13-samba-sync-design.md`。
 

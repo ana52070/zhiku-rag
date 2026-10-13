@@ -15,3 +15,5 @@ scripts/
 core/target/
 *.log
 test_hybrid_data/
+.deployment-backups/
+.deployment-staging/

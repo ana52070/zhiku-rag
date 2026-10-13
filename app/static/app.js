@@ -43,7 +43,7 @@ function showPage(page) {
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
-  $('#breadcrumb').textContent = `研发部 / ${{library: '知识库', search: '检索试验', models: '模型配置', service: '服务与接入', keys: 'API Key 授权'}[page]}`;
+  $('#breadcrumb').textContent = `研发部 / ${{library: '知识库', search: '检索试验', models: '模型配置', service: '服务与接入', keys: 'API Key 授权', sync: '目录同步'}[page]}`;
   location.hash = page;
 }
 

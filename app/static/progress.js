@@ -108,6 +108,3 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#operation-progress').hidden = true;
   });
 });
-$('#close-operation')?.addEventListener('click', () => {
-  $('#operation-progress').hidden = true;
-});
