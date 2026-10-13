@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Header, Body
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .documents import extract_document
@@ -18,6 +18,38 @@ from .preview import render_preview
 
 worker_app = FastAPI(title="联大研发部知识平台 - 文档解析 Worker")
 app = worker_app
+
+
+def check_worker_token(token):
+    import hmac
+    expected = os.environ.get('RAG_WORKER_TOKEN', '')
+    if not expected or not hmac.compare_digest(expected, token or ''):
+        raise HTTPException(status_code=401, detail='内部 Worker 令牌无效。')
+
+
+@worker_app.post('/smb/{action}')
+def smb_action(action: str, payload: dict = Body(...), x_worker_token: Optional[str] = Header(None)):
+    check_worker_token(x_worker_token)
+    if action not in ('test', 'scan', 'read'):
+        raise HTTPException(status_code=404, detail='SMB 操作不存在。')
+    from .smb_source import connect
+    try:
+        with connect(payload) as source:
+            if action == 'read':
+                content = source.read(payload.get('path', ''), payload.get('hash'))
+                return Response(content=content, media_type='application/octet-stream')
+            if action == 'scan':
+                return source.scan()
+            # 实际列出根目录，确认账号具有列目录权限。
+            from contextlib import closing
+            with closing(source.fs.scandir(source.root, **source.kwargs)) as entries:
+                directories = [entry.name for entry in entries if entry.is_dir(follow_symlinks=False)]
+            return {'connected': True, 'directories': sorted(directories)}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception:
+        # SMB 库错误可能含连接参数；禁止将凭据或原始异常输出到响应和日志。
+        raise HTTPException(status_code=502, detail='无法完整访问共享：请检查连接、账号权限及文件是否正在写入；本次不执行删除。')
 
 
 @worker_app.get("/health")
@@ -84,13 +116,14 @@ async def preview_source(
         if suffix == ".pdf":
             return Response(content=content, media_type="application/pdf")
 
-        if needs_pdf_preview(filename):
-            cache_file = cache_path / f"{document_id}-{suffix.lstrip('.')}.pdf"
-            if not cache_file.exists():
-                pdf_bytes = word_pdf(content, suffix)
-                cache_file.write_bytes(pdf_bytes)
-            else:
-                pdf_bytes = cache_file.read_bytes()
+        if suffix == '.docx' and needs_pdf_preview(io.BytesIO(content)):
+            if not document_id or len(document_id) > 100 or not all(c.isascii() and (c.isalnum() or c in '_-') for c in document_id):
+                raise ValueError('文档标识无效。')
+            # 转换器按源内容 SHA-256 缓存，更新原文件后不会命中旧 PDF。
+            with tempfile.TemporaryDirectory(prefix='zhiku-preview-source-') as directory:
+                source_path = Path(directory) / 'document.docx'
+                source_path.write_bytes(content)
+                pdf_bytes = word_pdf(source_path, cache_path, document_id).read_bytes()
 
             return Response(
                 content=pdf_bytes,

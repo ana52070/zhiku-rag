@@ -71,6 +71,7 @@ pub struct KnowledgeService {
     pub embedder: EmbeddingClient,
     pub operations: Operations,
     lock: Arc<RwLock<()>>,
+    pub sync_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl KnowledgeService {
@@ -89,6 +90,7 @@ impl KnowledgeService {
             embedder,
             operations,
             lock: Arc::new(RwLock::new(())),
+            sync_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -149,6 +151,7 @@ impl KnowledgeService {
     }
 
     pub async fn save_config(&self, req: ModelConfig) -> Result<PublicModelConfig, (u16, String)> {
+        let _sync_guard = self.sync_lock.lock().await;
         let _guard = self.lock.write().await;
         let old = self.config();
         let base_url = req.base_url.trim().trim_end_matches('/').to_string();
@@ -760,16 +763,24 @@ impl KnowledgeService {
     pub fn delete_document(&self, doc_id: &str) -> Result<Value, (u16, String)> {
         let doc = self.get_document(doc_id)?;
         let suffix = doc["suffix"].as_str().unwrap_or("");
-        let path = self.storage.uploads.join(format!("{}{}", doc_id, suffix));
-        let _ = std::fs::remove_file(path);
-        self.storage.remove_preview(doc_id);
+        let path = self.document_path(doc_id, suffix);
 
         self.storage.with_conn(|conn| {
             conn.execute("DELETE FROM documents WHERE id = ?", params![doc_id])?;
             Ok(())
         }).map_err(|e| (500, e))?;
+        let _ = std::fs::remove_file(path);
+        self.storage.remove_preview(doc_id);
 
         Ok(json!({ "deleted": true }))
+    }
+
+    pub fn document_path(&self, doc_id: &str, suffix: &str) -> std::path::PathBuf {
+        let filename = self.storage.with_conn(|conn| {
+            let name: String = conn.query_row("SELECT filename FROM document_blobs WHERE document_id=?", params![doc_id], |r| r.get(0))?;
+            Ok(name)
+        }).unwrap_or_else(|_| format!("{}{}", doc_id, suffix));
+        self.storage.uploads.join(filename)
     }
 
     pub fn batch_move(&self, doc_ids: &[String], library_id: &str, folder_id: Option<&str>) -> Result<Value, (u16, String)> {

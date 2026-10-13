@@ -86,6 +86,8 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
 
     Router::new()
         .merge(api_routes)
+        .layer(axum::middleware::from_fn_with_state(state.clone(), sync_mutation_guard))
+        .merge(crate::sync_api::routes())
         .nest_service("/static", ServeDir::new(&static_dir))
         .fallback(move |uri: axum::http::Uri| {
             let idx = index_file.clone();
@@ -113,6 +115,22 @@ pub fn create_router(service: KnowledgeService, static_dir: std::path::PathBuf) 
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state)
+}
+
+async fn sync_mutation_guard(
+    State(svc): State<AppState>, request: axum::extract::Request, next: axum::middleware::Next,
+) -> Response {
+    let path = request.uri().path();
+    let mutation = !matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS)
+        && (path.starts_with("/api/documents") || path.starts_with("/api/libraries")
+            || path.starts_with("/api/folders") || path == "/api/reindex");
+    if mutation {
+        let Ok(_guard) = svc.sync_lock.clone().try_lock_owned() else {
+            return err_response(409, "同步正在执行，请完成后修改文件或目录。");
+        };
+        return next.run(request).await;
+    }
+    next.run(request).await
 }
 
 fn err_response(code: u16, msg: impl Into<String>) -> Response {
@@ -502,13 +520,13 @@ async fn download_document(
 
     if let Some(grant) = query.grant {
         if let Err(e) = svc.keys.resolve_download(&id, &grant) {
-            eprintln!("下载签名校验提示 (宽松放行): {}", e);
+            return err_response(401, e);
         }
     }
 
     let filename = doc["filename"].as_str().unwrap_or("document");
     let suffix = doc["suffix"].as_str().unwrap_or("");
-    let file_path = svc.storage.uploads.join(format!("{}{}", id, suffix));
+    let file_path = svc.document_path(&id, suffix);
 
     if let Ok(bytes) = tokio::fs::read(&file_path).await {
         let cd = format!("attachment; filename=\"{}\"", filename);
@@ -528,7 +546,7 @@ async fn preview_document(State(svc): State<AppState>, Path(id): Path<String>) -
         Err((c, m)) => return err_response(c, m),
     };
     let suffix = doc["suffix"].as_str().unwrap_or("");
-    let file_path = svc.storage.uploads.join(format!("{}{}", id, suffix));
+    let file_path = svc.document_path(&id, suffix);
     let bytes = match tokio::fs::read(&file_path).await {
         Ok(b) => b,
         Err(_) => return err_response(404, "源文件不存在。"),
@@ -553,7 +571,7 @@ async fn preview_source_document(
     };
     let filename = doc["filename"].as_str().unwrap_or("document");
     let suffix = doc["suffix"].as_str().unwrap_or("");
-    let file_path = svc.storage.uploads.join(format!("{}{}", id, suffix));
+    let file_path = svc.document_path(&id, suffix);
     let bytes = match tokio::fs::read(&file_path).await {
         Ok(b) => b,
         Err(_) => return err_response(404, "源文件不存在。"),

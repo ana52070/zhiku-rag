@@ -12,6 +12,9 @@ pub mod operations;
 pub mod service;
 pub mod storage;
 pub mod vector;
+pub mod sync_schedule;
+pub mod sync;
+pub mod sync_api;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let service = service::KnowledgeService::new(storage, &worker_url);
+    sync::start_scheduler(service.clone());
     let app = api::create_router(service, static_dir);
 
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;

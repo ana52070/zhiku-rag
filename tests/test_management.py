@@ -89,15 +89,18 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual(self.client.delete('/api/libraries/default', headers=headers).status_code, 401)
         self.assertEqual(len(self.client.get('/api/documents').json()['documents']), 1)
 
-    def test_permanent_key_delete_invalidates_previously_issued_download(self):
+    def test_permanent_key_delete_removes_key_access_but_keeps_source_url(self):
         from urllib.parse import urlsplit
         self.upload()
         key = self.client.post('/api/keys', json={'name': '待删除', 'all_libraries': True}).json()
         url = urlsplit(self.client.get('/api/documents', headers={'Authorization': 'Bearer ' + key['key']}).json()['documents'][0]['download_url'])
-        endpoint = url.path + '?' + url.query
-        self.assertEqual(self.client.get(endpoint, headers={'Authorization': ''}).status_code, 200)
+        self.assertFalse(url.query)
+        endpoint = url.path
+        headers = {'Authorization': 'Bearer ' + key['key']}
+        self.assertEqual(self.client.get(endpoint, headers=headers).status_code, 200)
         self.assertEqual(self.client.delete('/api/keys/' + key['id'] + '/permanent').status_code, 200)
-        self.assertEqual(self.client.get(endpoint, headers={'Authorization': ''}).status_code, 401)
+        self.assertEqual(self.client.get(endpoint, headers=headers).status_code, 401)
+        self.assertEqual(self.client.get(endpoint).status_code, 200)
 
     def test_preview_formats_are_readable_and_cannot_execute_document_markup(self):
         fixtures = [('a.txt', b'<script>alert(1)</script>hello', '&lt;script&gt;'), ('a.md', b'# Heading\n\n<script>alert(1)</script>', '<h1>Heading</h1>'), ('a.csv', b'name,value\nradar,42', '<td>42</td>')]

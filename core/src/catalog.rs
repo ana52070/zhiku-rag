@@ -206,7 +206,7 @@ impl Catalog {
         self.validate_location(library_id, None)?;
 
         let docs_to_clean: Vec<(String, String)> = self.storage.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT id, suffix FROM documents WHERE library_id = ?")?;
+            let mut stmt = conn.prepare("SELECT d.id, COALESCE(b.filename, d.id || d.suffix) FROM documents d LEFT JOIN document_blobs b ON b.document_id=d.id WHERE d.library_id = ?")?;
             let rows = stmt.query_map(params![library_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
             let mut list = Vec::new();
             for r in rows {
@@ -225,8 +225,8 @@ impl Catalog {
             Ok(())
         })?;
 
-        for (doc_id, suffix) in docs_to_clean {
-            let file_path = self.storage.uploads.join(format!("{}{}", doc_id, suffix));
+        for (doc_id, filename) in docs_to_clean {
+            let file_path = self.storage.uploads.join(filename);
             let _ = std::fs::remove_file(file_path);
             self.storage.remove_preview(&doc_id);
         }

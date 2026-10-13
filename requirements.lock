@@ -1,4 +1,6 @@
 annotated-types==0.8.0
+smbprotocol==1.15.0
+pyspnego==0.12.4
 Pillow==11.3.0
 pypdfium2==5.13.0
 Markdown==3.9

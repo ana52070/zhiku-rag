@@ -14,3 +14,4 @@ python-pptx==1.0.2
 Markdown==3.9
 Pillow==11.3.0
 pypdfium2==5.13.0
+smbprotocol==1.15.0

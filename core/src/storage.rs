@@ -96,6 +96,23 @@ impl Storage {
                 prefix TEXT NOT NULL, library_ids TEXT NOT NULL, all_libraries INTEGER NOT NULL,
                 created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS sync_tasks (
+                id TEXT PRIMARY KEY, config TEXT NOT NULL, next_run TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sync_files (
+                task_id TEXT NOT NULL REFERENCES sync_tasks(id) ON DELETE CASCADE,
+                path TEXT NOT NULL, document_id TEXT NOT NULL UNIQUE, hash TEXT NOT NULL,
+                PRIMARY KEY(task_id, path)
+            );
+            CREATE TABLE IF NOT EXISTS sync_runs (
+                id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES sync_tasks(id) ON DELETE CASCADE,
+                state TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, summary TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS sync_runs_task ON sync_runs(task_id, started_at);
+            CREATE TABLE IF NOT EXISTS document_blobs (
+                document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+                filename TEXT NOT NULL
+            );
             "#,
         )
         .map_err(|e| format!("初始化数据库表结构失败: {}", e))?;

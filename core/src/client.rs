@@ -19,6 +19,19 @@ pub struct ExtractResponse {
 }
 
 impl WorkerClient {
+    pub async fn smb(&self, action: &str, payload: &Value) -> Result<reqwest::Response, String> {
+        let token = std::env::var("RAG_WORKER_TOKEN").unwrap_or_default();
+        if token.is_empty() { return Err("请配置 Rust 与 Worker 共用的 RAG_WORKER_TOKEN。".into()); }
+        let response = self.client.post(format!("{}/smb/{}", self.worker_url, action))
+            .timeout(std::time::Duration::from_secs(3600))
+            .header("X-Worker-Token", token).json(payload).send().await
+            .map_err(|_| "SMB Worker 请求失败；本次不执行删除。".to_string())?;
+        if !response.status().is_success() {
+            let value: Value = response.json().await.unwrap_or_default();
+            return Err(value["detail"].as_str().unwrap_or("SMB Worker 访问失败。").to_string());
+        }
+        Ok(response)
+    }
     pub fn new(worker_url: &str) -> Self {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(120))
@@ -106,6 +119,7 @@ impl WorkerClient {
         let part = Part::bytes(content.to_vec()).file_name(filename.to_string());
         let form = Form::new()
             .text("document_id", document_id.to_string())
+            .text("filename", filename.to_string())
             .part("file", part);
 
         let url = format!("{}/preview-source", self.worker_url);

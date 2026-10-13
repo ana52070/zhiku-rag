@@ -68,20 +68,21 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/keys', headers=self.admin, json={'name': '错误', 'library_ids': ['missing']}).status_code, 404)
         self.assertEqual(self.client.post('/api/keys', headers=self.admin, json={'name': '空权限', 'library_ids': []}).status_code, 400)
 
-    def test_download_link_needs_no_bearer_but_expires_and_follows_revocation(self):
+    def test_source_url_is_permanent_and_contains_no_credentials(self):
         from urllib.parse import urlsplit
         key = self.key([self.a])
         headers = {'Authorization': 'Bearer ' + key['key']}
         data = self.client.get('/api/documents', headers=headers).json()['documents'][0]
         url = urlsplit(data['download_url'])
-        self.assertTrue(url.query, 'MCP 客户端的文件链接应包含短期下载授权')
-        path = url.path + '?' + url.query
+        self.assertFalse(url.query, '永久内网链接不携带短期下载签名')
+        path = url.path
         self.assertNotIn(key['key'], data['download_url'])
-        self.assertEqual(self.client.get(path).content, '雷达说明'.encode())
+        self.assertEqual(self.client.get(path, headers=self.admin).content, '雷达说明'.encode())
         other = path.replace(self.da, self.db)
-        self.assertEqual(self.client.get(other).status_code, 401)
+        self.assertEqual(self.client.get(other, headers=headers).status_code, 404)
         import time
         with patch('app.access_keys.time.time', return_value=time.time()+601):
-            self.assertEqual(self.client.get(path).status_code, 401)
+            self.assertEqual(self.client.get(path, headers=headers).status_code, 200)
         self.client.delete('/api/keys/' + key['id'], headers=self.admin)
-        self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 401)
+        self.assertEqual(self.client.get(path, headers=self.admin).status_code, 200)
