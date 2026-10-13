@@ -1,0 +1,34 @@
+# 与现有部署 Compose 叠加；目录由管理员预先创建。
+services:
+  handbook-collector:
+    build:
+      context: ..
+      dockerfile: collectors/engineering_handbook/Dockerfile
+    image: zhiku-handbook-collector:local
+    container_name: zhiku-handbook-collector
+    restart: unless-stopped
+    init: true
+    dns:
+      - ${HANDBOOK_DNS:-8.8.8.8}
+    environment:
+      HANDBOOK_OUTPUT: /output
+      HANDBOOK_URL: https://jcni8xb0obr4.doubaoapps.com/app/app_17fwjp9ecfp
+    volumes:
+      - ./handbook-data:/output
+    # 采集器不接入知识库内部网络，也不发布端口。
+    networks:
+      - handbook-egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,datetime,pathlib; s=json.loads(pathlib.Path('/output/status.json').read_text()); assert s['state']=='success'; assert datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(s['last_success'])<datetime.timedelta(days=8)"]
+      interval: 5m
+      timeout: 5s
+      start_period: 10m
+      retries: 2
+  rag-worker:
+    environment:
+      RAG_LOCAL_SOURCES: '{"engineering-handbook":"/sources/engineering-handbook"}'
+    volumes:
+      - ./handbook-data:/sources/engineering-handbook:ro
+networks:
+  handbook-egress:
+    driver: bridge

@@ -104,7 +104,8 @@ async fn schedule(Json(cfg): Json<crate::sync_schedule::ScheduleConfig>) -> Resp
     )
 }
 async fn test(State(svc): State<AppState>, Json(mut payload): Json<Value>) -> Response {
-    if let Some(id) = payload["task_id"].as_str() {
+    if payload["source_kind"] != "local" {
+      if let Some(id) = payload["task_id"].as_str() {
         if payload["password"].as_str().unwrap_or("").is_empty() {
             match svc
                 .sync_task(id)
@@ -114,8 +115,10 @@ async fn test(State(svc): State<AppState>, Json(mut payload): Json<Value>) -> Re
                 Err(e) => return error(400, e),
             }
         }
+      }
     }
-    match svc.worker.smb("test", &payload).await {
+    let kind = payload["source_kind"].as_str().unwrap_or("smb");
+    match svc.worker.source(kind, "test", &payload).await {
         Ok(response) => result(
             response
                 .json::<Value>()

@@ -14,7 +14,13 @@ use uuid::Uuid;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskConfig {
     pub name: String,
+    #[serde(default = "default_source_kind")]
+    pub source_kind: String,
+    #[serde(default)]
+    pub source_id: String,
+    #[serde(default)]
     pub server: String,
+    #[serde(default)]
     pub share: String,
     #[serde(default)]
     pub subdir: String,
@@ -33,6 +39,9 @@ pub struct TaskConfig {
 fn default_port() -> u16 {
     445
 }
+fn default_source_kind() -> String {
+    "smb".into()
+}
 
 #[derive(Clone, Deserialize)]
 struct SourceEntry {
@@ -44,6 +53,8 @@ struct SourceEntry {
 struct Manifest {
     complete: bool,
     files: Vec<SourceEntry>,
+    #[serde(default)]
+    snapshot: String,
 }
 #[derive(Default, Serialize, Deserialize)]
 pub struct RunSummary {
@@ -115,7 +126,17 @@ impl KnowledgeService {
         cfg.server = cfg.server.trim().into();
         cfg.share = cfg.share.trim().into();
         cfg.subdir = cfg.subdir.replace('\\', "/").trim_matches('/').into();
-        if cfg.server.is_empty()
+        if cfg.source_kind == "local" {
+            cfg.source_id = cfg.source_id.trim().into();
+            if cfg.source_id.is_empty() || cfg.source_id.len() > 100
+                || !cfg.source_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+                return Err("请填写已登记的本地来源标识。".into());
+            }
+            cfg.server.clear(); cfg.share.clear(); cfg.subdir.clear();
+            cfg.username.clear(); cfg.password.clear();
+        } else if cfg.source_kind != "smb" {
+            return Err("不支持的同步来源类型。".into());
+        } else if cfg.server.is_empty()
             || cfg.server.len() > 253
             || cfg
                 .server
@@ -144,7 +165,9 @@ impl KnowledgeService {
                 )?)
             })?;
             if count > 0
-                && (old.server != cfg.server
+                && (old.source_kind != cfg.source_kind
+                    || old.source_id != cfg.source_id
+                    || old.server != cfg.server
                     || old.share != cfg.share
                     || old.subdir != cfg.subdir
                     || old.port != cfg.port
@@ -153,13 +176,17 @@ impl KnowledgeService {
             {
                 return Err("已有来源映射，不能修改源目录或目标位置；请新建任务。".into());
             }
-            cfg.password = if cfg.password.is_empty() {
+            cfg.password = if cfg.source_kind == "local" {
+                String::new()
+            } else if cfg.password.is_empty() {
                 old.password
             } else {
                 self.storage.encrypt(&cfg.password)?
             };
         } else {
-            cfg.password = self.storage.encrypt(&cfg.password)?;
+            if cfg.source_kind != "local" {
+                cfg.password = self.storage.encrypt(&cfg.password)?;
+            }
         }
         // 阻止任务管理同一目标子树，避免互相覆盖和删除。
         for other in self.sync_tasks()? {
@@ -229,6 +256,9 @@ impl KnowledgeService {
         })
     }
     pub fn smb_payload(&self, cfg: &TaskConfig) -> Result<Value, String> {
+        if cfg.source_kind == "local" {
+            return Ok(json!({"source_id": cfg.source_id}));
+        }
         Ok(
             json!({"server":cfg.server,"share":cfg.share,"subdir":cfg.subdir,"port":cfg.port,
             "username":cfg.username,"password":self.storage.decrypt(&cfg.password)?}),
@@ -315,7 +345,7 @@ impl KnowledgeService {
         let payload = self.smb_payload(cfg)?;
         let manifest: Manifest = self
             .worker
-            .smb("scan", &payload)
+            .source(&cfg.source_kind, "scan", &payload)
             .await?
             .json()
             .await
@@ -336,8 +366,12 @@ impl KnowledgeService {
         }
         result.total = manifest.files.len();
         self.progress_sync(rid, result)?;
+        let mut pinned_payload = payload.clone();
+        if !manifest.snapshot.is_empty() {
+            pinned_payload["snapshot"] = json!(manifest.snapshot);
+        }
         for entry in &manifest.files {
-            match self.sync_one(id, cfg, entry, &payload).await {
+            match self.sync_one(id, cfg, entry, &pinned_payload).await {
                 Ok("added") => result.added += 1,
                 Ok("updated") => result.updated += 1,
                 Ok(_) => result.skipped += 1,
@@ -357,14 +391,14 @@ impl KnowledgeService {
         // 删除之前再次完整扫描，目录在处理期间变化则留到下一轮。
         let verify: Manifest = self
             .worker
-            .smb("scan", &payload)
+            .source(&cfg.source_kind, "scan", &payload)
             .await?
             .json()
             .await
             .map_err(|_| "删除前复核扫描失败。")?;
         let first: HashSet<_> = manifest.files.iter().map(|e| (&e.path, &e.hash)).collect();
         let second: HashSet<_> = verify.files.iter().map(|e| (&e.path, &e.hash)).collect();
-        if !verify.complete || first != second {
+        if !verify.complete || first != second || manifest.snapshot != verify.snapshot {
             return Err("同步期间源目录发生变化，取消删除阶段，下次重试。".into());
         }
         let stale = self.storage.with_conn(|conn| {
@@ -485,7 +519,7 @@ impl KnowledgeService {
         request["hash"] = json!(entry.hash);
         let content = self
             .worker
-            .smb("read", &request)
+            .source(&cfg.source_kind, "read", &request)
             .await?
             .bytes()
             .await

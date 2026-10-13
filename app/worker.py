@@ -52,6 +52,24 @@ def smb_action(action: str, payload: dict = Body(...), x_worker_token: Optional[
         raise HTTPException(status_code=502, detail='无法完整访问共享：请检查连接、账号权限及文件是否正在写入；本次不执行删除。')
 
 
+@worker_app.post('/local/{action}')
+def local_action(action: str, payload: dict = Body(...), x_worker_token: Optional[str] = Header(None)):
+    check_worker_token(x_worker_token)
+    if action not in ('test', 'scan', 'read'):
+        raise HTTPException(status_code=404, detail='本地来源操作不存在。')
+    from .local_source import LocalSource
+    try:
+        source = LocalSource(payload)
+        if action == 'read':
+            return Response(content=source.read(payload.get('path', ''), payload.get('hash')),
+                            media_type='application/octet-stream')
+        return source.scan() if action == 'scan' else source.test()
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(status_code=400, detail=str(error) if isinstance(error, ValueError) else '本地来源文件不存在，取消本次同步。')
+    except Exception:
+        raise HTTPException(status_code=502, detail='无法完整读取本地来源，本次不执行删除。')
+
+
 @worker_app.get("/health")
 async def health():
     return {"status": "ok", "service": "doc-parser-worker"}

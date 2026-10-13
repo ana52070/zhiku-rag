@@ -2,6 +2,18 @@
 const syncState = {tasks: [], editing: null, history: null, timer: null};
 const syncLabels = {daily: '每日', weekly: '每周', interval: '固定间隔', cron: 'Cron'};
 const syncDate = value => value ? new Date(value).toLocaleString('zh-CN', {hour12: false}) : '—';
+const syncSourceLabel = task => task.source_kind === 'local' ? '本地目录：' + task.source_id : '\\\\' + task.server + '\\' + task.share + (task.subdir ? '\\' + task.subdir.replaceAll('/', '\\') : '');
+
+function syncSourceFields() {
+  const local = $('#sync-source-kind').value === 'local';
+  $('#sync-local-field').hidden = !local;
+  $('#sync-source-id').required = local;
+  for (const key of ['address', 'server', 'share', 'subdir', 'port', 'username', 'password']) {
+    const input = $('#sync-' + key);
+    input.closest('label').hidden = local;
+    input.disabled = local;
+  }
+}
 
 function syncFeedback(message, failed = false) {
   const box = $('#sync-feedback'); box.hidden = false; box.textContent = message; box.classList.toggle('failed', failed);
@@ -9,7 +21,7 @@ function syncFeedback(message, failed = false) {
 async function syncLoad() {
   try {
     syncState.tasks = await api('/api/sync/tasks'); $('#sync-error').hidden = true;
-    $('#sync-list').innerHTML = syncState.tasks.length ? syncState.tasks.map(task => `<article class="sync-card"><div><h3>${escapeHtml(task.name)}</h3><p class="sync-source">${escapeHtml('\\\\' + task.server + '\\' + task.share + (task.subdir ? '\\' + task.subdir.replaceAll('/', '\\') : ''))}</p><p>${escapeHtml(catalogState.libraries.find(lib => lib.id === task.library_id)?.name || '知识库已删除')} / ${escapeHtml(task.folder_id ? folderPath(task.folder_id) : '根目录')}</p><p>${escapeHtml(syncLabels[task.schedule.kind])} · ${escapeHtml(task.schedule.timezone)} · ${task.enabled ? `下次 ${syncDate(task.next_run)}` : '定时已停用'}${task.running ? ' · 正在同步' : ''}</p></div><div class="sync-actions"><button class="secondary" data-sync-action="run" data-id="${task.id}" ${task.running ? 'disabled' : ''}>立即同步</button><button class="text-button" data-sync-action="edit" data-id="${task.id}" ${task.running ? 'disabled' : ''}>编辑</button><button class="text-button" data-sync-action="toggle" data-id="${task.id}" ${task.running ? 'disabled' : ''}>${task.enabled ? '停用定时' : '启用定时'}</button><button class="text-button" data-sync-action="runs" data-id="${task.id}">执行记录</button><button class="text-button delete-button" data-sync-action="delete" data-id="${task.id}" ${task.running ? 'disabled' : ''}>删除任务</button></div></article>`).join('') : '<div class="quiet-empty"><h3>暂无同步任务</h3><p>添加远端共享目录，选择知识库和执行时间。</p></div>';
+    $('#sync-list').innerHTML = syncState.tasks.length ? syncState.tasks.map(task => `<article class="sync-card"><div><h3>${escapeHtml(task.name)}</h3><p class="sync-source">${escapeHtml(syncSourceLabel(task))}</p><p>${escapeHtml(catalogState.libraries.find(lib => lib.id === task.library_id)?.name || '知识库已删除')} / ${escapeHtml(task.folder_id ? folderPath(task.folder_id) : '根目录')}</p><p>${escapeHtml(syncLabels[task.schedule.kind])} · ${escapeHtml(task.schedule.timezone)} · ${task.enabled ? `下次 ${syncDate(task.next_run)}` : '定时已停用'}${task.running ? ' · 正在同步' : ''}</p></div><div class="sync-actions"><button class="secondary" data-sync-action="run" data-id="${task.id}" ${task.running ? 'disabled' : ''}>立即同步</button><button class="text-button" data-sync-action="edit" data-id="${task.id}" ${task.running ? 'disabled' : ''}>编辑</button><button class="text-button" data-sync-action="toggle" data-id="${task.id}" ${task.running ? 'disabled' : ''}>${task.enabled ? '停用定时' : '启用定时'}</button><button class="text-button" data-sync-action="runs" data-id="${task.id}">执行记录</button><button class="text-button delete-button" data-sync-action="delete" data-id="${task.id}" ${task.running ? 'disabled' : ''}>删除任务</button></div></article>`).join('') : '<div class="quiet-empty"><h3>暂无同步任务</h3><p>添加远端共享目录，选择知识库和执行时间。</p></div>';
   } catch (error) { $('#sync-error').hidden = false; $('#sync-error').textContent = error.message; }
 }
 function syncFields() {
@@ -26,6 +38,9 @@ async function syncEdit(task) {
   syncState.editing = task?.id || null;
   $('#sync-form').reset(); $('#sync-feedback').hidden = true; $('#sync-form').hidden = false;
   $('#sync-form-title').textContent = task ? '编辑同步任务' : '新建同步任务';
+  $('#sync-source-kind').value = task?.source_kind || 'smb';
+  $('#sync-source-id').value = task?.source_id || '';
+  syncSourceFields();
   for (const key of ['name', 'server', 'share', 'subdir', 'username', 'port']) $('#sync-' + key).value = task?.[key] ?? (key === 'port' ? 445 : '');
   $('#sync-password').value = ''; $('#sync-password-note').textContent = task?.has_password ? '已保存密码；留空保留原密码。' : '加密保存，网页不会读回明文。';
   $('#sync-library').innerHTML = libraryOptions(); $('#sync-library').value = task?.library_id || catalogState.library || catalogState.libraries[0]?.id || '';
@@ -40,6 +55,7 @@ function syncSchedule() {
   return {kind: $('#sync-kind').value, time: $('#sync-time').value, timezone: $('#sync-timezone').value.trim(), interval_hours: Number($('#sync-interval').value), cron: $('#sync-cron').value.trim(), weekdays: [...$('#sync-weekdays').querySelectorAll('input:checked')].map(input => Number(input.value))};
 }
 function syncConnection() {
+  if ($('#sync-source-kind').value === 'local') return {source_kind: 'local', source_id: $('#sync-source-id').value.trim()};
   return {server: $('#sync-server').value.trim(), share: $('#sync-share').value.trim(), subdir: $('#sync-subdir').value.trim().replaceAll('\\', '/').replace(/^\/+|\/+$/g, ''), username: $('#sync-username').value, password: $('#sync-password').value, port: Number($('#sync-port').value)};
 }
 async function syncHistory(task) {
@@ -49,6 +65,7 @@ async function syncHistory(task) {
 }
 $('#new-sync').addEventListener('click', () => syncEdit(null).catch(error => toast(error.message, true)));
 $('#sync-kind').addEventListener('change', syncFields); $('#sync-library').addEventListener('change', syncFolders);
+$('#sync-source-kind').addEventListener('change', syncSourceFields);
 $('#sync-cancel').addEventListener('click', () => { $('#sync-form').hidden = true; $('#sync-password').value = ''; });
 $('#sync-address').addEventListener('change', () => {
   const value = $('#sync-address').value.trim().replaceAll('\\', '/');

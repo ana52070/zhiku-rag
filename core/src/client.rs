@@ -20,9 +20,15 @@ pub struct ExtractResponse {
 
 impl WorkerClient {
     pub async fn smb(&self, action: &str, payload: &Value) -> Result<reqwest::Response, String> {
+        self.source("smb", action, payload).await
+    }
+    pub async fn source(&self, kind: &str, action: &str, payload: &Value) -> Result<reqwest::Response, String> {
+        if !["smb", "local"].contains(&kind) || !["test", "scan", "read"].contains(&action) {
+            return Err("来源操作无效。".into());
+        }
         let token = std::env::var("RAG_WORKER_TOKEN").unwrap_or_default();
         if token.is_empty() { return Err("请配置 Rust 与 Worker 共用的 RAG_WORKER_TOKEN。".into()); }
-        let response = self.client.post(format!("{}/smb/{}", self.worker_url, action))
+        let response = self.client.post(format!("{}/{}/{}", self.worker_url, kind, action))
             .timeout(std::time::Duration::from_secs(3600))
             .header("X-Worker-Token", token).json(payload).send().await
             .map_err(|_| "SMB Worker 请求失败；本次不执行删除。".to_string())?;

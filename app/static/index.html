@@ -89,14 +89,16 @@
         <div class="key-connection settings-form"><h2>连接 OpenClaw / MCP 客户端</h2><p>使用“服务与接入”中的 MCP 地址，并配置请求头：</p><pre><code>Authorization: Bearer &lt;你创建的 API Key&gt;</code></pre><p class="footnote">“全部知识库”授权会包含后续新建的库。单独选择知识库时，范围仅包含勾选的库。</p></div>
       </section>
       <section id="page-sync" class="page" hidden>
-        <div class="page-heading"><div><h1>目录同步</h1><p>定时读取远端 Samba 共享，将变化同步到指定知识库。</p></div><button id="new-sync" class="primary">新建同步任务</button></div>
-        <div class="notice"><div><strong>以共享目录为准</strong><p>未变化文件跳过；修改更新；源删除同步删除关联文档。连接或扫描失败时不执行删除。</p></div></div>
+        <div class="page-heading"><div><h1>目录同步</h1><p>定时读取 Samba 共享或本地只读目录，将变化同步到指定知识库。</p></div><button id="new-sync" class="primary">新建同步任务</button></div>
+        <div class="notice"><div><strong>以来源目录为准</strong><p>未变化文件跳过；修改更新；源删除同步删除关联文档。连接或扫描失败时不执行删除。</p></div></div>
         <div id="sync-error" class="test-result failed" role="status" hidden></div>
         <div id="sync-list" class="collection"><p>选择此页面后读取任务。</p></div>
         <form id="sync-form" class="settings-form sync-form" hidden>
           <h2 id="sync-form-title">新建同步任务</h2>
           <div class="sync-grid">
             <label>任务名称<input id="sync-name" required maxlength="100" placeholder="技术组资料每日同步"></label>
+            <label>来源类型<select id="sync-source-kind"><option value="smb">远端 Samba 共享</option><option value="local">本地只读目录</option></select></label>
+            <label id="sync-local-field" hidden>本地来源标识<input id="sync-source-id" maxlength="100" placeholder="engineering-handbook"><small>使用服务器登记的来源标识，不填写任意磁盘路径。</small></label>
             <label>共享地址<input id="sync-address" placeholder="\\192.168.30.10\资料\技术组"><small>可粘贴完整地址，或填写下方主机与共享名。</small></label>
             <label>目标主机<input id="sync-server" required placeholder="192.168.30.10"></label>
             <label>共享名<input id="sync-share" required placeholder="资料"></label>
@@ -105,7 +107,7 @@
             <label>用户名<input id="sync-username" autocomplete="off" placeholder="用户名或 域\用户名"></label>
             <label>密码<input id="sync-password" type="password" autocomplete="new-password"><small id="sync-password-note">加密保存，网页不会读回明文。</small></label>
             <label>目标知识库<select id="sync-library" required></select></label>
-            <label>目标子目录<select id="sync-folder"></select><small>在其下保留共享目录的相对层级。</small></label>
+            <label>目标子目录<select id="sync-folder"></select><small>在其下保留来源目录的相对层级。</small></label>
             <label>执行频率<select id="sync-kind"><option value="daily">每天</option><option value="weekly">每周</option><option value="interval">固定间隔</option><option value="cron">Cron 表达式</option></select></label>
             <label>时区<input id="sync-timezone" value="Asia/Shanghai" required placeholder="Asia/Shanghai"></label>
             <label id="sync-time-field">执行时间<input id="sync-time" type="time" value="02:00" required></label>
@@ -114,7 +116,7 @@
           </div>
           <fieldset id="sync-weekdays" hidden><legend>执行星期</legend><div class="sync-weekday-options"><label><input type="checkbox" value="1">周一</label><label><input type="checkbox" value="2">周二</label><label><input type="checkbox" value="3">周三</label><label><input type="checkbox" value="4">周四</label><label><input type="checkbox" value="5">周五</label><label><input type="checkbox" value="6">周六</label><label><input type="checkbox" value="0">周日</label></div></fieldset>
           <label class="checkbox-label"><input id="sync-enabled" type="checkbox" checked>启用定时执行</label>
-          <p class="footnote">首次会接管目标同目录的同名文件。人工移动、删除或停用同步文件后，下次按共享状态恢复。任务删除只解除同步关系，保留知识库文件。</p>
+          <p class="footnote">首次会接管目标同目录的同名文件。人工移动、删除或停用同步文件后，下次按来源状态恢复。任务删除只解除同步关系，保留知识库文件。</p>
           <div id="sync-feedback" class="test-result" role="status" hidden></div>
           <div class="form-actions"><button type="button" id="sync-cancel" class="secondary">取消</button><button type="button" id="sync-test" class="secondary">测试连接</button><button type="button" id="sync-preview" class="secondary">预览执行时间</button><button type="submit" class="primary">保存任务</button></div>
         </form>

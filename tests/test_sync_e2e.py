@@ -53,7 +53,15 @@ class SyncE2E(unittest.TestCase):
                         payload = json.loads(body)
                         if self.headers.get('X-Worker-Token') != 'worker-test':
                             raise RuntimeError('缺少内部令牌')
-                        if self.path == '/smb/test':
+                        if self.path.startswith('/local/'):
+                            from app.local_source import LocalSource
+                            with __import__('unittest.mock', fromlist=['patch']).patch.dict(os.environ, {'RAG_LOCAL_SOURCES': json.dumps({'manual': str(cls.source)})}):
+                                source = LocalSource(payload)
+                                if self.path == '/local/read':
+                                    raw = source.read(payload['path'], payload['hash'])
+                                    self.send_response(200); self.end_headers(); self.wfile.write(raw); return
+                                result = source.scan() if self.path == '/local/scan' else source.test()
+                        elif self.path == '/smb/test':
                             result = {'connected': True, 'directories': []}
                         elif self.path == '/smb/scan':
                             if cls.scan_gate:
@@ -265,6 +273,33 @@ class SyncE2E(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.headers['content-type'], 'application/pdf')
         self.assertEqual(result.content, content)
+
+    def test_08_local_source_incremental_and_source_change_guard(self):
+        (self.source / 'local.md').write_text('本地来源原文', encoding='utf-8')
+        library = self.client.post('/api/libraries', json={'name': '本地来源测试'}).json()
+        config = {'name': '本地同步', 'source_kind': 'local', 'source_id': 'manual',
+                  'library_id': library['id'], 'folder_id': None, 'enabled': False,
+                  'schedule': {'kind': 'interval', 'interval_hours': 1, 'timezone': 'Asia/Shanghai'}}
+        response = self.client.post('/api/sync/tasks', json=config)
+        self.assertEqual(response.status_code, 200, response.text)
+        task = response.json(); self.assertEqual(task['source_kind'], 'local')
+        first = self.run_task(task); self.assertEqual(first['state'], 'success', first)
+        before = self.extract_count
+        self.assertGreater(self.run_task(task)['skipped'], 0)
+        self.assertEqual(before, self.extract_count)
+        doc = next(d for d in self.docs(library) if d['filename'] == 'local.md')
+        (self.source / 'local.md').write_text('本地新版', encoding='utf-8')
+        type(self).fail_embedding = True
+        try:
+            self.assertEqual(self.run_task(task)['state'], 'failed')
+            self.assertIn('原文', self.client.get(f"/api/documents/{doc['id']}").json()['text'])
+        finally:
+            type(self).fail_embedding = False
+        self.assertEqual(self.run_task(task)['updated'], 1)
+        response = self.client.put(f"/api/sync/tasks/{task['id']}", json=dict(config, source_id='other'))
+        self.assertEqual(response.status_code, 400)
+        (self.source / 'local.md').unlink()
+        self.assertEqual(self.run_task(task)['deleted'], 1)
 
 
 if __name__ == '__main__':
