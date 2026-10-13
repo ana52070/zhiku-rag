@@ -16,6 +16,19 @@ def sample():
 
 
 class CollectorTests(unittest.TestCase):
+    def test_busy_collector_does_not_overwrite_success_status(self):
+        from filelock import FileLock
+        from unittest.mock import patch
+        from collectors.engineering_handbook.collector import main
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); status = root / 'status.json'
+            status.write_text('{"state":"success","next_run":"2030-01-01T00:00:00+00:00"}')
+            before = status.read_bytes()
+            with FileLock(str(root / '.collector.lock')), patch('sys.argv', ['collector', '--output', directory]), patch('time.sleep', side_effect=StopIteration):
+                with self.assertRaises(StopIteration):
+                    main()
+            self.assertEqual(status.read_bytes(), before)
+
     def test_weekly_schedule_uses_shanghai_monday(self):
         from datetime import datetime, timezone
         from collectors.engineering_handbook.collector import next_weekly
@@ -48,6 +61,8 @@ throw new Error("禁止执行网站脚本");</script></html>'''
         self.assertIn('如何停止？', full[0])
         self.assertIn('网页整理要点', faq[0])
         self.assertIn('E:/资料/a.docx', faq[0])
+        self.assertTrue(any(k.startswith('全文/a.docx__') for k in docs))
+        self.assertTrue(any(k.startswith('问答/如何启动？__') for k in docs))
 
     def test_missing_fulltext_rejected_and_conflicting_text_preserved(self):
         from collectors.engineering_handbook.collector import prepare_documents

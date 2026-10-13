@@ -26,6 +26,11 @@ def digest(value):
     return hashlib.sha256(value).hexdigest()
 
 
+def filename(title, identifier):
+    label = re.sub(r'[\x00-\x1f<>:"/\\|?*]', '_', title).replace('..', '_').strip(' ._')[:40]
+    return (label or '资料') + '__' + identifier + '.md'
+
+
 def prepare_documents(dataset):
     items = dataset['items']
     if not items or len(items) != dataset['expected_count']:
@@ -59,14 +64,15 @@ def prepare_documents(dataset):
         for paragraphs, related in variants.items():
             full += '\n\n## 内嵌文本\n\n关联问题：' + '；'.join(related) + '\n\n'
             full += '\n\n'.join(paragraphs) + '\n'
-        output[f'全文/{identifier}.md'] = full.encode('utf-8')
+        full_path = '全文/' + filename(Path(source.replace('\\', '/')).name, identifier)
+        output[full_path] = full.encode('utf-8')
         for item in associated:
             key = digest(item['question'].encode('utf-8'))
             body = f"# {item['question']}\n\n内容类型：网页整理要点\n\n分类：{item['category']}\n\n"
             body += '标签：' + '、'.join(item['tags']) + '\n\n'
-            body += f"网页来源：{dataset['url']}\n\n原资料位置：{source}\n\n全文文件：全文/{identifier}.md\n\n"
+            body += f"网页来源：{dataset['url']}\n\n原资料位置：{source}\n\n全文文件：{full_path}\n\n"
             body += '## 回答要点\n\n' + '\n\n'.join(item['answer']) + '\n'
-            output[f'问答/{key}.md'] = body.encode('utf-8')
+            output['问答/' + filename(item['question'], key)] = body.encode('utf-8')
     return output
 
 
@@ -142,16 +148,16 @@ def parse_html(html, url):
                     value, _ = json.JSONDecoder().raw_decode(script[match.end():])
                     values.append(value)
                 except json.JSONDecodeError as error:
-                    raise ValueError('???????????') from error
-        if len(values) != 1: raise ValueError('??????????????')
+                    raise ValueError('网页结构化数据不完整。') from error
+        if len(values) != 1: raise ValueError('网页数据结构改变，取消发布。')
         return values[0]
     metadata, categories = variable('FAQ_META'), variable('FAQ_DATA')
     if not isinstance(metadata, dict) or not isinstance(categories, list) or not categories:
-        raise ValueError('?????????????')
+        raise ValueError('网页元数据或分类结构无效。')
     items, category_keys = [], set()
     for category in categories:
         if not category.get('name') or not isinstance(category.get('items'), list) or category.get('id') in category_keys:
-            raise ValueError('??????????')
+            raise ValueError('网页分类缺失或重复。')
         category_keys.add(category.get('id'))
         for original in category['items']:
             items.append({'id': str(len(items) + 1), 'question': original.get('q'), 'category': category['name'],
@@ -160,7 +166,7 @@ def parse_html(html, url):
     dataset = {'url': url, 'title': parser.title.strip(), 'date': metadata.get('updated'),
                'expected_count': len(items), 'expected_sources': len({i['source'] for i in items}),
                'categories': [{'key': c['id'], 'name': c['name'], 'count': len(c['items'])} for c in categories], 'items': items}
-    if not dataset['date'] or not dataset['title']: raise ValueError('????????????')
+    if not dataset['date'] or not dataset['title']: raise ValueError('网页标题或更新日期缺失。')
     prepare_documents(dataset)
     return dataset
 
@@ -171,7 +177,7 @@ def fetch(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'EngineeringHandbookArchive/1.0'})
     with opener.open(request, timeout=120) as response:
         raw = response.read(20 * 1024 * 1024 + 1)
-    if len(raw) > 20 * 1024 * 1024: raise ValueError('???? 20 MiB ?????')
+    if len(raw) > 20 * 1024 * 1024: raise ValueError('网页超过 20 MiB 容量限制。')
     html = raw.decode('utf-8')
     return parse_html(html, url), html
 
@@ -194,7 +200,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     root = Path(args.output); root.mkdir(parents=True, exist_ok=True)
     # OS 文件锁避免命令行手工执行与常驻采集同时发布。
-    from filelock import FileLock
+    from filelock import FileLock, Timeout
     while True:
         now = datetime.now(timezone.utc)
         state_path = root / 'status.json'
@@ -208,6 +214,10 @@ def main():
                     atomic_json(state_path, {'state': 'success', 'last_success': now.isoformat(),
                                            'next_run': next_weekly(now).isoformat(), **result})
                     LOG.info('采集完成：条目=%s 来源=%s 文件=%s 有变化=%s', len(dataset['items']), dataset['expected_sources'], result['files'], result['changed'])
+        except Timeout:
+            LOG.info('已有采集进程持有发布锁，本轮等待。')
+            if args.once:
+                raise
         except Exception as error:
             LOG.error('采集失败，旧版本保留：%s', type(error).__name__)
             if args.once:
