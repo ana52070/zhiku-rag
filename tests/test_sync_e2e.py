@@ -40,7 +40,9 @@ class SyncE2E(unittest.TestCase):
                         # Multipart 文件部分，用真实解析函数提取纯文本。
                         raw = body.split(b'\r\n\r\n', 1)[1].rsplit(b'\r\n--', 1)[0]
                         from app.documents import extract_document
-                        suffix, text, info = extract_document('a.md', raw)
+                        import re
+                        filename = re.search(br'filename="([^"]+)"', body).group(1).decode('utf-8')
+                        suffix, text, info = extract_document(filename, raw)
                         result = {'suffix': suffix, 'text': text, 'extraction_info': info}
                     elif self.path.endswith('/embeddings'):
                         if cls.fail_embedding:
@@ -251,6 +253,18 @@ class SyncE2E(unittest.TestCase):
         self.assertTrue(path.exists())
         self.assertEqual(self.client.delete(f"/api/libraries/{library['id']}").status_code, 200)
         self.assertFalse(path.exists())
+
+    def test_07_synced_pdf_preview_returns_original_bytes(self):
+        from tests.document_fixtures import text_pdf
+        content = text_pdf()
+        (self.source / 'manual.pdf').write_bytes(content)
+        task, library = self.task('PDF预览测试')
+        self.assertEqual(self.run_task(task)['state'], 'success')
+        document = next(d for d in self.docs(library) if d['filename'] == 'manual.pdf')
+        result = self.client.get(f"/api/documents/{document['id']}/preview")
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.headers['content-type'], 'application/pdf')
+        self.assertEqual(result.content, content)
 
 
 if __name__ == '__main__':

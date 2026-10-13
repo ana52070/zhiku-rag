@@ -13,3 +13,6 @@ docs
 .codex
 node_modules
 backups
+.deployment-backups
+.deployment-staging
+scripts

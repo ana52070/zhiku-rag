@@ -552,6 +552,13 @@ async fn preview_document(State(svc): State<AppState>, Path(id): Path<String>) -
         Err(_) => return err_response(404, "源文件不存在。"),
     };
 
+    if suffix == ".pdf" {
+        return Response::builder()
+            .header(header::CONTENT_TYPE, "application/pdf")
+            .body(Body::from(bytes))
+            .unwrap();
+    }
+
     match svc.worker.render_preview(&doc, &bytes).await {
         Ok(html) => Response::builder()
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")

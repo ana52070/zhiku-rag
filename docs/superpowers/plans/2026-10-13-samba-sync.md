@@ -20,9 +20,9 @@
 
 接口：POST `/smb/test`、`/smb/scan`、`/smb/read`；连接配置含 `server/share/subdir/username/password/port`，读取额外包含 `path/hash`。内部令牌通过 `X-Worker-Token` 传入。扫描返回 `complete=true, files=[{path,size,hash}]`；读取返回文件字节，确认读取前后文件稳定。
 
-- [ ] 用临时目录适配器测试路径穿越、嵌套扫描、SHA-256、锁文件、读取变化、扫描权限失败。
-- [ ] `python -m unittest tests.test_smb_source -v` 观察缺少接口失败。
-- [ ] 实现客户端及 Worker 端点，重复上述命令验证。
+- [x] 用临时目录适配器测试路径穿越、嵌套扫描、SHA-256、锁文件、读取变化、扫描权限失败。
+- [x] `python -m unittest tests.test_smb_source -v` 观察缺少接口失败。
+- [x] 实现客户端及 Worker 端点，重复上述命令验证。
 
 ## 2. Rust 同步状态、发布和调度
 
@@ -30,17 +30,17 @@
 
 接口：`/api/sync/tasks` CRUD、`/{id}/run`、`/{id}/runs`、`/api/sync/test`。配置含 SMB 信息、目标及 `schedule={kind,time,weekdays,interval_hours,cron,timezone}`。`sync_files` 唯一对应任务/相对路径与文档；`document_blobs` 指向不可变原文件。
 
-- [ ] 编写调度、幂等、接管、更新故障、删除保护、人工恢复和凭据隐藏测试，运行 `cargo test --manifest-path core/Cargo.toml sync` 观察失败。
-- [ ] 实现表结构、验证、加密凭据及内部 HTTP 客户端。
-- [ ] 实现先准备后事务发布、完整扫描后的删除阶段、串行运行和重启恢复。
-- [ ] 实现受管理员令牌保护的路由和常用模式/五字段 Cron 调度。
-- [ ] 执行 Rust 单测及真实 HTTP 测试替身集成验证后提交。
+- [x] 编写调度、幂等、接管、更新故障、删除保护、人工恢复和凭据隐藏测试，运行 `cargo test --manifest-path core/Cargo.toml sync` 观察失败。
+- [x] 实现表结构、验证、加密凭据及内部 HTTP 客户端。
+- [x] 实现先准备后事务发布、完整扫描后的删除阶段、串行运行和重启恢复。
+- [x] 实现受管理员令牌保护的路由和常用模式/五字段 Cron 调度。
+- [x] 执行 Rust 单测及真实 HTTP 测试替身集成验证后提交。
 
 ## 3. 网页任务管理与部署
 
 文件：`app/static/index.html`、`app/static/sync.js`、`app/static/style.css`、`deploy/docker-compose.yml`、Dockerfiles、同步使用文档及浏览器验收脚本。
 
-- [ ] 网页提供连接测试、任务新增/编辑、时间预览、知识库/文件夹选择、立即运行、启停及执行记录。
-- [ ] 运行浏览器桌面/手机尺寸验收和鉴权、密码不回显检查。
-- [ ] 全量行为测试、Rust 编译、镜像构建；记录通过及未验证项。
-- [ ] 核实内网运行版本与路径，备份后发布；真实共享信息缺失时通过结构化提问对齐，完成实际 SMB 增改删验收。
+- [x] 网页提供连接测试、任务新增/编辑、时间预览、知识库/文件夹选择、立即运行、启停及执行记录。
+- [x] 运行浏览器桌面/手机尺寸验收和鉴权、密码不回显检查。
+- [x] 全量行为测试、Rust 编译、镜像构建；记录通过及未验证项。
+- [x] 核实内网运行版本与路径，备份后发布；真实共享信息缺失时通过结构化提问对齐，完成实际 SMB 增改删验收。

@@ -14,8 +14,9 @@ class BrowserSync(unittest.TestCase):
                 page = browser.new_page(viewport={'width': 1440, 'height': 1000})
                 errors = []
                 page.on('pageerror', lambda error: errors.append(error.stack))
-                page.goto(SyncE2E.url)
-                page.locator('[data-page="sync"]').click()
+                page.goto(SyncE2E.url + '/#sync')
+                self.assertTrue(page.locator('#page-sync').is_visible(), '目录同步应支持直接链接')
+                page.locator('#auth-dialog').wait_for(state='visible')
                 page.locator('#admin-token').fill('admin-test')
                 page.locator('#auth-form button[type="submit"]').click()
                 page.locator('#new-sync').click()

@@ -279,9 +279,9 @@ $('#copy-mcp').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#mcp-url').value); toast('MCP 地址已复制。'); }
   catch { $('#mcp-url').select(); toast('浏览器不允许自动复制，请复制已选中的地址。'); }
 });
-window.addEventListener('hashchange', () => { const page = location.hash.slice(1); if (['library', 'search', 'models', 'service', 'keys'].includes(page)) showPage(page); });
+window.addEventListener('hashchange', () => { const page = location.hash.slice(1); if (['library', 'search', 'models', 'service', 'keys', 'sync'].includes(page)) showPage(page); });
 const initialPage = location.hash.slice(1);
-showPage(['library', 'search', 'models', 'service', 'keys'].includes(initialPage) ? initialPage : 'library');
+showPage(['library', 'search', 'models', 'service', 'keys', 'sync'].includes(initialPage) ? initialPage : 'library');
 
 const catalogState = {library: null, folder: null, libraries: [], folders: [], keys: [], resource: null, moving: null, editingKey: null, revoking: null};
 const libraryDescriptions = {default: '待整理的资料，从这里开始归档', faq: '培训资料、软件说明与调试常见问题', retrospective: '技术路线、需求判断与项目风险复盘', projects: '产品、项目清单与近似方案检索'};
