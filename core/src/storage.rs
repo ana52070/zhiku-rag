@@ -14,6 +14,33 @@ impl AppError {
     }
 }
 
+#[cfg(test)]
+mod sync_migration_tests {
+    use super::*;
+    #[test]
+    fn existing_vectors_repair_zero_count_without_reindex() {
+        let directory = std::env::temp_dir().join(format!("ld-sync-migration-{}", uuid::Uuid::new_v4().simple()));
+        let storage = Storage::new(&directory).unwrap();
+        storage.with_conn(|conn| {
+            conn.execute("INSERT INTO documents(id,filename,suffix,size,text,created_at,status) VALUES('legacy','a.txt','.txt',3,'old','0','ready')", [])?;
+            conn.execute("INSERT INTO chunks VALUES('legacy',1,'old','[1,0,0]')", [])?;
+            Ok(())
+        }).unwrap();
+        drop(storage);
+        let storage = Storage::new(&directory).unwrap();
+        let (count, vector): (i64, String) = storage.with_conn(|conn| {
+            Ok(conn.query_row("SELECT d.chunk_count,c.vector FROM documents d JOIN chunks c ON c.document_id=d.id WHERE d.id='legacy'",[],|r|Ok((r.get(0)?,r.get(1)?)))?)
+        }).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(vector, "[1,0,0]");
+        drop(storage);
+        let resolved = directory.canonicalize().unwrap();
+        assert_eq!(resolved.parent().unwrap(), std::env::temp_dir().canonicalize().unwrap());
+        assert!(resolved.file_name().unwrap().to_string_lossy().starts_with("ld-sync-migration-"));
+        std::fs::remove_dir_all(resolved).unwrap();
+    }
+}
+
 impl From<rusqlite::Error> for AppError {
     fn from(e: rusqlite::Error) -> Self {
         AppError(e.to_string())
@@ -116,6 +143,12 @@ impl Storage {
             "#,
         )
         .map_err(|e| format!("初始化数据库表结构失败: {}", e))?;
+
+        // 兼容旧版本已写入向量但片段计数为零的记录；不重新生成向量。
+        conn.execute(
+            "UPDATE documents SET chunk_count=(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) WHERE status='ready' AND chunk_count=0 AND EXISTS(SELECT 1 FROM chunks WHERE document_id=documents.id)",
+            [],
+        ).map_err(|e| format!("校准旧文档片段计数失败: {}", e))?;
 
         // 检查并初始化默认知识库
         let init_done: bool = conn

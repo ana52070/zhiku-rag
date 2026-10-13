@@ -109,7 +109,19 @@ def connect(cfg):
     cache = {}
     kwargs = {'username': cfg.get('username', ''), 'password': cfg.get('password', ''),
               'port': cfg.get('port', 445), 'connection_timeout': 30, 'connection_cache': cache}
+    if not kwargs['username'] and not kwargs['password']:
+        import spnego
+        # 显式空凭据避免 Linux 将其解释为“读取操作系统凭据缓存”。
+        # SMB 的匿名/guest 会话本身不支持消息签名和加密。
+        kwargs.update(username=spnego.Password('', ''), password=None, encrypt=False)
     try:
+        if not cfg.get('username', '') and not cfg.get('password', ''):
+            from smbprotocol.tree import TreeConnect
+            session = smbclient.register_session(cfg['server'], **kwargs, auth_protocol='ntlm', require_signing=False)
+            # 只对本请求的匿名树连接关闭依赖签名密钥的协商校验。
+            # 不修改 smbclient 的全局 ClientConfig，其他账号会话保持原要求。
+            tree = TreeConnect(session, ntpath.join('\\\\' + cfg['server'], cfg['share']))
+            tree.connect(require_secure_negotiate=False)
         yield Source(root, smbclient, kwargs)
     finally:
         smbclient.reset_connection_cache(fail_on_error=False, connection_cache=cache)

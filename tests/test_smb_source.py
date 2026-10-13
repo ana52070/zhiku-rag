@@ -74,6 +74,16 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_connection(cfg)
 
+    def test_anonymous_context_does_not_require_os_credentials(self):
+        import spnego
+        import inspect
+        from smbclient._pool import get_smb_tree
+        from app.smb_source import connect
+        with patch('smbclient.register_session'), patch('smbprotocol.tree.TreeConnect'), connect({'server': 'test-server', 'share': '资料', 'username': '', 'password': ''}) as source:
+            context = spnego.client(source.kwargs['username'], source.kwargs['password'], protocol='ntlm')
+            self.assertTrue(context.step())
+            inspect.signature(get_smb_tree).bind(source.root, **source.kwargs)
+
 
 if __name__ == '__main__':
     unittest.main()
